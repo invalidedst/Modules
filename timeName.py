@@ -1,12 +1,6 @@
-# You CANNOT edit this file without direct permission from the author.
-# You can redistribute this file without any changes.
-
-# meta developer: @Toxano_Modules
-# scope: @Toxano
-# scope: @Toxano_Modulesimport 
-
 import asyncio
 import logging
+import datetime
 from telethon.tl.functions.account import UpdateProfileRequest
 from .. import loader, utils
 from telethon import TelegramClient
@@ -15,27 +9,22 @@ logger = logging.getLogger(__name__)
 
 @loader.tds
 class TimeInNickMod(loader.Module):
-    """Показывает текущее время в никнейме с поддержкой часовых поясов"""
+    """Shows current time in nickname with timezone support"""
     
     strings = {
-        "name": "ВремяВНике",
-        "time_enabled": "⏰ Отображение времени в нике включено",
-        "time_disabled": "⏰ Отображение времени в нике выключено", 
-        "invalid_delay": "⚠️ Неверный интервал обновления (должен быть 1-60 минут)",
-        "night_mode_enabled": "🌙 Ночной режим включен",
-        "night_mode_disabled": "🌅 Ночной режим выключен",
-        "cfg_timezone": "Часовой пояс (MSK/UTC/EST/CST/PST/etc)",
-        "cfg_update": "Интервал обновления ника (1-60 минут)",
-        "cfg_night": "Отключать обновления в ночное время (00:00-06:00)",
-        "cfg_night_start": "Время начала ночного режима (ЧЧ:ММ)",
-        "cfg_night_end": "Время окончания ночного режима (ЧЧ:ММ)", 
-        "cfg_format": "Формат ника. Доступные переменные: {nickname}, {time}"
-    }
-
-    strings_ru = {
-        "name": "ВремяВНике",
-        "_cmd_doc_updatenick": "Включить/выключить отображение времени в никнейме",
-        "_cls_doc": "Показывает текущее время в никнейме с поддержкой часовых поясов"
+        "name": "TimeInNick",
+        "time_enabled": "⏰ Time display in nickname enabled",
+        "time_disabled": "⏰ Time display in nickname disabled", 
+        "invalid_delay": "⚠️ Invalid update interval (should be 1-60 minutes)",
+        "night_mode_enabled": "🌙 Night mode enabled",
+        "night_mode_disabled": "🌅 Night mode disabled",
+        "cfg_timezone": "Timezone (MSK/UTC/EST/CST/PST/etc)",
+        "cfg_update": "Nickname update interval (1-60 minutes)",
+        "cfg_night": "Disable updates during night time (00:00-06:00)",
+        "cfg_night_start": "Night mode start time (HH:MM)",
+        "cfg_night_end": "Night mode end time (HH:MM)", 
+        "cfg_format": "Nickname format. Available variables: {nickname}, {time}",
+        "error_updating": "⚠️ Error updating nickname: {}"
     }
 
     def __init__(self):
@@ -52,11 +41,13 @@ class TimeInNickMod(loader.Module):
         self.task = None
 
     async def client_ready(self, client: TelegramClient, db):
-        """Вызывается при загрузке модуля"""
         self._client = client
 
-    async def updatenickcmd(self, message):
-        """Включить/выключить отображение времени в никнейме"""
+    @loader.command(
+        ru_doc="Включить/выключить отображение времени в никнейме"
+    )
+    async def timenick(self, message):
+        """Toggle time display in nickname"""
         if self.active:
             self.active = False
             if self.task:
@@ -67,7 +58,12 @@ class TimeInNickMod(loader.Module):
                         first_name=self.original_nick
                     ))
                 except Exception as e:
-                    logger.error(f"Ошибка при обновлении ника: {e}")
+                    logger.error(f"Error restoring nickname: {e}")
+                    await utils.answer(
+                        message,
+                        self.strings["error_updating"].format(str(e))
+                    )
+                    return
             await utils.answer(message, self.strings["time_disabled"])
             return
         
@@ -75,34 +71,45 @@ class TimeInNickMod(loader.Module):
         me = await self._client.get_me()
         self.original_nick = me.first_name
         await utils.answer(message, self.strings["time_enabled"])
-        
-        # Запускаем обновление в отдельной таске
         self.task = asyncio.create_task(self.update_nickname())
 
+    async def get_formatted_time(self):
+        """Get current time formatted according to timezone settings"""
+        now = datetime.datetime.now()
+        timezone_offsets = {
+            "MSK": 3,
+            "EST": -5,
+            "CST": -6,
+            "PST": -8,
+            "UTC": 0
+        }
+        
+        offset = timezone_offsets.get(self.config["TIMEZONE"].upper(), 0)
+        adjusted_time = now + datetime.timedelta(hours=offset)
+        return adjusted_time.strftime("%H:%M")
+
     async def update_nickname(self):
-        """Обновляет никнейм с текущим временем"""
+        """Updates nickname with current time"""
         while self.active:
             try:
                 now = datetime.datetime.now()
                 
-                # Проверка ночного режима
                 if self.config["NIGHT_MODE"]:
-                    night_start = datetime.datetime.strptime(self.config["NIGHT_START"], "%H:%M").time()
-                    night_end = datetime.datetime.strptime(self.config["NIGHT_END"], "%H:%M").time() 
+                    night_start = datetime.datetime.strptime(
+                        self.config["NIGHT_START"], 
+                        "%H:%M"
+                    ).time()
+                    night_end = datetime.datetime.strptime(
+                        self.config["NIGHT_END"], 
+                        "%H:%M"
+                    ).time()
                     current_time = now.time()
                     
                     if night_start <= current_time <= night_end:
                         await asyncio.sleep(60)
                         continue
 
-                # Форматирование времени согласно часовому поясу
-                if self.config["TIMEZONE"] == "MSK":
-                    time_str = (now + datetime.timedelta(hours=3)).strftime("%H:%M")
-                elif self.config["TIMEZONE"] == "EST":
-                    time_str = (now - datetime.timedelta(hours=5)).strftime("%H:%M")
-                else:
-                    time_str = now.strftime("%H:%M")
-
+                time_str = await self.get_formatted_time()
                 new_nick = self.config["TIME_FORMAT"].format(
                     nickname=self.original_nick,
                     time=time_str
@@ -113,12 +120,20 @@ class TimeInNickMod(loader.Module):
                 ))
 
             except Exception as e:
-                logger.error(f"Ошибка при обновлении ника: {e}")
+                logger.error(f"Error updating nickname: {e}")
 
-            # Ждем 1 минуту перед следующим обновлением
-            await asyncio.sleep(60)
+            await asyncio.sleep(60 * self.config["UPDATE_DELAY"])
 
     async def on_unload(self):
-        """Вызывается при выгрузке модуля"""
+        """Called when module is being unloaded"""
+        if self.active:
+            self.active = False
         if self.task:
             self.task.cancel()
+            if self.original_nick:
+                try:
+                    await self._client(UpdateProfileRequest(
+                        first_name=self.original_nick
+                    ))
+                except Exception as e:
+                    logger.error(f"Error restoring nickname during unload: {e}")
