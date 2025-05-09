@@ -54,7 +54,7 @@ class RandomPhotoMod(loader.Module):
     @loader.command()
     async def randpic(self, message):
         """Send a random anime photo"""
-        channels = ["loli_zone_sfw", "allconH"]
+        channels = ["dvach18", "allconH", "hdjrkdjrkdkd", "Animeplaneta", "Gi_Hent"]
         seen_photos = self.get("seen_photos", [])
         
         # Show loading message
