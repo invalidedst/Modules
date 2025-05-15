@@ -4,6 +4,7 @@
 # + non-commercial
 # + no-derivatives
 
+# meta banner: https://envs.sh/oCp.jpg
 # meta developer: @Toxano_Modules
 # scope: @Toxano_Modules
 
