@@ -7,6 +7,7 @@
 # You CANNOT edit this file without direct permission from the author.
 # You can redistribute this file without any changes.
 
+# meta banner: https://envs.sh/oCn.jpg
 # meta developer: @Toxano_Modules
 # scope: @Toxano
 # scope: @Toxano_Modules
