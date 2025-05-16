@@ -5,7 +5,7 @@
 #   |_|\___/_/\_\__,_|_| |_|\___/ 
 #                              
 # meta banner: https://envs.sh/o12.jpg
-# # meta developer: @Toxano_Modules
+# meta developer: @Toxano_Modules, @mqvon
 from .. import loader, utils
 import io
 import requests
