@@ -1,15 +1,10 @@
-# This file is a part of Heroku Userbot
-# Code is licensed under CC-BY-NC-ND 4.0 unless otherwise specified
-# + attribution
-# + non-commercial
-# + no-derivatives
-
-# You CANNOT edit this file without direct permission from the author.
-# You can redistribute this file without any changes.
-
-# meta banner: https://envs.sh/oCn.jpg
-# meta developer: @Toxano_Modules
-# scope: @Toxano
+#  _____                          
+# |_   _|____  ____ _ _ __   ___  
+#   | |/ _ \ \/ / _` | '_ \ / _ \ 
+#   | | (_) >  < (_| | | | | (_) |
+#   |_|\___/_/\_\__,_|_| |_|\___/ 
+#                              
+# meta banner: https://envs.sh/oJH.jpg
 # scope: @Toxano_Modules
 
 from .. import loader, utils
