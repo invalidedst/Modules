@@ -2,15 +2,14 @@
 # |_   _|____  ____ _ _ __   ___  
 #   | |/ _ \ \/ / _` | '_ \ / _ \ 
 #   | | (_) >  < (_| | | | | (_) |
-#   |_|\___/_/\_\__,_|_| |_|\___/ 
-#                              
+#   |_|\___/_/\_\__,_|_| |_|\___/                      
 # meta banner: https://envs.sh/o12.jpg
-# meta developer: @Toxano_Modules ; @mqvon
+# meta developer: @Toxano_Modules, @mqvon
 from .. import loader, utils
 import io
 import requests
 import json
-__version__ = (1, 0, 0)
+__version__ = (1, 0, 1)
 
 @loader.tds
 class ImgBBUploaderMod(loader.Module):
