@@ -3,7 +3,7 @@
 #   | |/ _ \ \/ / _` | '_ \ / _ \ 
 #   | | (_) >  < (_| | | | | (_) |
 #   |_|\___/_/\_\__,_|_| |_|\___/                      
-# meta banner: https://envs.sh/o12.jpg
+# meta banner: https://envs.sh/oJf.jpg
 # meta developer: @Toxano_Modules, @mqvon
 from .. import loader, utils
 import io
