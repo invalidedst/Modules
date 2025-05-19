@@ -37,7 +37,7 @@ class OpenRouterAIMod(loader.Module):
     def __init__(self):
         self.config = loader.ModuleConfig(
             "API_KEY",
-            "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",
+            "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",
             "OpenRouter API Key",
             "DEFAULT_MODEL",
             "google/gemma-3-27b-it",
