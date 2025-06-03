@@ -6,7 +6,6 @@
 #                              
 # meta banner: https://envs.sh/oJM.jpg
 # meta developer: @Toxano_Modules
-# scope: @Toxano_Modules
 
 import asyncio
 import logging
