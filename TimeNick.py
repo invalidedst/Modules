@@ -74,11 +74,11 @@ FONT_STYLES = {
 }
 
 @loader.tds
-class TimeNick(loader.Module):
+class TimeInNick(loader.Module):
     """Показывает текущее время в никнейме и био с разными стилями шрифтов"""
     
     strings = {
-        "name": "TimeNick",
+        "name": "TimeInNick",
         "time_enabled": "⏰ Отображение времени в никнейме включено",
         "time_disabled": "⏰ Отображение времени в никнейме выключено",
         "bio_enabled": "⏰ Отображение времени в био включено", 
