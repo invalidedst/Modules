@@ -4,7 +4,7 @@
 #   | | (_) >  < (_| | | | | (_) |
 #   |_|\___/_/\_\__,_|_| |_|\___/ 
 #                              
-# meta banner: https://i.ibb.co/N2RJmphR/image-9956.jpg
+# meta banner: https://i.ibb.co/PshM7Lhm/image-9988.jpg
 # meta developer: @mqvon
 # scope: @mqvon
 
