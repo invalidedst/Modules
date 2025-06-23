@@ -121,7 +121,7 @@ class TimeInNickMod(loader.Module):
             ),
             loader.ConfigValue(
                 "FONT_STYLE",
-                0,
+                1,
                 doc=FONT_STYLES_DESC,
                 validator=loader.validators.Integer(minimum=0, maximum=9)
             )
