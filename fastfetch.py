@@ -58,7 +58,6 @@ class fastfetch(loader.Module):
         self._neofetch_config_path = os.path.expanduser("~/.config/neofetch/config.conf")
         os.makedirs(os.path.expanduser("~/.local/bin"), exist_ok=True)
         
-        # Добавляем ~/.local/bin в PATH если его там нет
         local_bin = os.path.expanduser("~/.local/bin")
         if local_bin not in os.environ.get("PATH", ""):
             os.environ["PATH"] = f"{local_bin}:{os.environ.get('PATH', '')}"
@@ -66,8 +65,7 @@ class fastfetch(loader.Module):
     def _detect_distro(self):
         """Определение дистрибутива Linux"""
         distro_info = {}
-        
-        # Читаем /etc/os-release
+
         try:
             with open("/etc/os-release", "r") as f:
                 for line in f:
@@ -76,8 +74,7 @@ class fastfetch(loader.Module):
                         distro_info[key] = value.strip('"')
         except FileNotFoundError:
             pass
-        
-        # Попробуем другие файлы
+
         for file_path in ["/etc/lsb-release", "/etc/redhat-release", "/etc/debian_version"]:
             if os.path.exists(file_path):
                 try:
@@ -122,8 +119,7 @@ class fastfetch(loader.Module):
         distro_id = distro.get("ID", "").lower()
         
         await utils.answer(message, self.strings["distro_detected"].format(distro=distro.get("PRETTY_NAME", "Unknown")))
-        
-        # Определяем приоритетные пакетные менеджеры для дистрибутива
+
         package_managers = []
         
         if distro_id in ["ubuntu", "debian", "linuxmint", "kali", "pop"]:
@@ -149,8 +145,7 @@ class fastfetch(loader.Module):
             package_managers = [
                 ("apk", ["apk", "add", package_name])
             ]
-        
-        # Добавляем универсальные менеджеры
+
         package_managers.extend([
             ("snap", ["snap", "install", package_name]),
             ("flatpak", ["flatpak", "install", "-y", package_name])
@@ -160,7 +155,7 @@ class fastfetch(loader.Module):
             if self._check_package_manager(manager):
                 await utils.answer(message, self.strings["trying_package_manager"].format(manager=manager))
                 try:
-                    # Объединяем команды с && в одну строку для shell
+
                     if "&&" in cmd:
                         cmd_str = " ".join(cmd)
                         result = subprocess.run(cmd_str, shell=True, capture_output=True, text=True, timeout=300)
@@ -182,8 +177,7 @@ class fastfetch(loader.Module):
             api_url = "https://api.github.com/repos/fastfetch-cli/fastfetch/releases/latest"
             with urllib.request.urlopen(api_url) as response:
                 release_data = json.loads(response.read().decode())
-            
-            # Поиск подходящей архитектуры
+
             arch_patterns = {
                 "amd64": ["linux-amd64", "x86_64", "linux-x64"],
                 "arm64": ["linux-aarch64", "linux-arm64"],
@@ -195,8 +189,7 @@ class fastfetch(loader.Module):
                 for pattern in arch_patterns.get(arch, []):
                     if pattern in asset_name and asset_name.endswith(".tar.gz"):
                         return asset["browser_download_url"], asset["name"]
-            
-            # Fallback для amd64
+
             return "https://github.com/fastfetch-cli/fastfetch/releases/latest/download/fastfetch-linux-amd64.tar.gz", "fastfetch-linux-amd64.tar.gz"
         except Exception:
             return "https://github.com/fastfetch-cli/fastfetch/releases/latest/download/fastfetch-linux-amd64.tar.gz", "fastfetch-linux-amd64.tar.gz"
@@ -207,21 +200,17 @@ class fastfetch(loader.Module):
         
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
-                # Клонируем репозиторий
+
                 subprocess.run(["git", "clone", "https://github.com/fastfetch-cli/fastfetch.git", temp_dir], check=True, timeout=300)
-                
-                # Создаем директорию для сборки
+
                 build_dir = os.path.join(temp_dir, "build")
                 os.makedirs(build_dir, exist_ok=True)
-                
-                # Конфигурируем cmake
+
                 subprocess.run(["cmake", "..", "-DCMAKE_INSTALL_PREFIX=" + os.path.expanduser("~/.local")], 
                              cwd=build_dir, check=True, timeout=300)
-                
-                # Компилируем
+
                 subprocess.run(["make", "-j4"], cwd=build_dir, check=True, timeout=600)
-                
-                # Устанавливаем
+
                 subprocess.run(["make", "install"], cwd=build_dir, check=True, timeout=300)
                 
                 return True
@@ -377,12 +366,11 @@ col_offset="auto"
         await utils.answer(message, self.strings["installing_fastfetch"])
         
         try:
-            # Сначала пробуем пакетные менеджеры
+  
             if await self._install_with_package_manager("fastfetch", "fastfetch", message):
                 await utils.answer(message, self.strings["installed_fastfetch"])
                 return
-            
-            # Если не получилось, качаем бинарник
+
             download_url, filename = await self._get_latest_fastfetch_url()
             
             temp_dir = "/tmp/fastfetch_install"
@@ -391,8 +379,7 @@ col_offset="auto"
             
             urllib.request.urlretrieve(download_url, archive_path)
             subprocess.run(["tar", "-xzf", archive_path, "-C", temp_dir], check=True)
-            
-            # Ищем исполняемый файл fastfetch
+
             for root, dirs, files in os.walk(temp_dir):
                 if "fastfetch" in files:
                     fastfetch_binary = os.path.join(root, "fastfetch")
@@ -400,7 +387,7 @@ col_offset="auto"
                     os.chmod(self._fastfetch_path, 0o755)
                     break
             else:
-                # Если не нашли, пробуем компиляцию
+ 
                 if await self._compile_fastfetch_from_source(message):
                     await utils.answer(message, self.strings["installed_fastfetch"])
                     return
@@ -418,12 +405,11 @@ col_offset="auto"
         await utils.answer(message, self.strings["installing_neofetch"])
         
         try:
-            # Сначала пробуем пакетные менеджеры
+
             if await self._install_with_package_manager("neofetch", "neofetch", message):
                 await utils.answer(message, self.strings["installed_neofetch"])
                 return
-            
-            # Если не получилось, качаем из исходников
+
             if await self._install_neofetch_from_source(message):
                 await utils.answer(message, self.strings["installed_neofetch"])
                 return
@@ -436,30 +422,28 @@ col_offset="auto"
     @loader.command(ru_doc="Показать информацию о системе через fastfetch")
     async def fastfetch(self, message: Message):
         """Отображение информации о системе с ASCII артом через fastfetch"""
-        # Проверяем системный fastfetch
+ 
         if not os.path.exists(self._fastfetch_path) and not shutil.which("fastfetch"):
             await utils.answer(message, self.strings["no_fastfetch"])
             return
         
         try:
             await self._write_fastfetch_config()
-            
-            # Используем системный fastfetch или локальный
+
             fastfetch_cmd = "fastfetch" if shutil.which("fastfetch") else self._fastfetch_path
             
             result = subprocess.run(
                 [fastfetch_cmd, "--config", self._fastfetch_config_path],
                 capture_output=True,
                 text=True,
-                timeout=15  # Уменьшили таймаут для скорости
+                timeout=15   
             )
             
             if result.returncode == 0:
                 clean_output = self._clean_ansi_codes(result.stdout)
                 fixed_output = self._fix_separator(clean_output)
                 escaped_output = html.escape(fixed_output)
-                
-                # Простая цитата без pre
+
                 formatted_output = f"<blockquote>{escaped_output}</blockquote>"
                 
                 await utils.answer(message, formatted_output)
@@ -475,30 +459,28 @@ col_offset="auto"
     @loader.command(ru_doc="Показать информацию о системе через neofetch")
     async def neofetch(self, message: Message):
         """Отображение информации о системе с ASCII артом через neofetch"""
-        # Проверяем системный neofetch
+
         if not os.path.exists(self._neofetch_path) and not shutil.which("neofetch"):
             await utils.answer(message, self.strings["no_neofetch"])
             return
         
         try:
             await self._write_neofetch_config()
-            
-            # Используем системный neofetch или локальный
+ 
             neofetch_cmd = "neofetch" if shutil.which("neofetch") else self._neofetch_path
             
             result = subprocess.run(
                 [neofetch_cmd, "--config", self._neofetch_config_path],
                 capture_output=True,
                 text=True,
-                timeout=10  # Уменьшили таймаут для скорости
+                timeout=10   
             )
             
             if result.returncode == 0:
                 clean_output = self._clean_ansi_codes(result.stdout)
                 fixed_output = self._fix_separator(clean_output)
                 escaped_output = html.escape(fixed_output)
-                
-                # Простая цитата без pre
+
                 formatted_output = f"<blockquote>{escaped_output}</blockquote>"
                 
                 await utils.answer(message, formatted_output)
