@@ -13,6 +13,7 @@ from datetime import datetime
 from telethon.errors import UserNotFoundError, FloodWaitError, ChatWriteForbiddenError
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.functions.photos import GetUserPhotosRequest
+from telethon.tl.types import Message
 from .. import loader, utils
 
 @loader.tds
@@ -227,7 +228,7 @@ class UserInfoMod(loader.Module):
     @loader.command(
         ru_doc="<@username или ID> - Получить информацию о пользователе"
     )
-    async def check(self, message):
+    async def check(self, message: Message):
         """<@username или ID> - Получить информацию о пользователе"""
         args = utils.get_args_raw(message)
         reply = await message.get_reply_message()

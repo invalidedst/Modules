@@ -7,7 +7,7 @@
 # meta developer: @Toxano_Modules
 # scope: @Toxano_Modules
 
-from hikkatl.types import Message
+from herokutl.types import Message
 from .. import loader, utils
 import subprocess
 import os
