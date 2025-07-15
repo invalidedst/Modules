@@ -1,197 +1,245 @@
-#  _____                          
-# |_   _|____  ____ _ _ __   ___  
-#   | |/ _ \ \/ / _` | '_ \ / _ \ 
-#   | | (_) >  < (_| | | | | (_) |
-#   |_|\___/_/\_\__,_|_| |_|\___/ 
-#                              
-# meta banner: https://i.ibb.co/PshM7Lhm/image-9988.jpg
-# meta developer: @mqvon
-# scope: @mqvon
-
 import asyncio
 import aiohttp
-from hikka import loader, utils
-from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument
+import hashlib
+import re
+from typing import Optional, Dict
 from io import BytesIO
+from .. import loader, utils
+from herokutl.types import Message
+
 
 @loader.tds
 class AnimeFinderMod(loader.Module):
+    """говно поиск аниме по скрину (новые аниме не ищит) """
+    
     strings = {
         "name": "AnimeFinder",
-        "cfg_api_key": "API-ключ для Trace.moe (необязательно)",
-        "cfg_cut_borders": "Обрезать границы изображения при поиске (True/False)"
+        "searching": "🔍 <b>Searching for anime...</b>",
+        "error_no_reply": "❌ <b>Reply to a photo, GIF or sticker!</b>",
+        "error_download": "❌ <b>Failed to download image!</b>",
+        "error_api": "❌ <b>Trace.moe API error!</b>",
+        "not_found": "😔 <b>Anime not found!</b> Try another image",
+        "quality_excellent": "🌟 <b>Excellent match</b>",
+        "quality_good": "👍 <b>Good match</b>",
+        "quality_medium": "🤔 <b>Medium match</b>",
+        "quality_poor": "😐 <b>Poor match</b>"
     }
-# хули смотришь выйди
+    
+    strings_ru = {
+        "searching": "🔍 <b>Ищу аниме...</b>",
+        "error_no_reply": "❌ <b>Ответь на фото, GIF или стикер!</b>",
+        "error_download": "❌ <b>Не удалось скачать изображение!</b>",
+        "error_api": "❌ <b>Ошибка API Trace.moe!</b>",
+        "not_found": "😔 <b>Аниме не найдено!</b> Попробуй другое изображение",
+        "quality_excellent": "🌟 <b>Отличное совпадение</b>",
+        "quality_good": "👍 <b>Хорошее совпадение</b>",
+        "quality_medium": "🤔 <b>Среднее совпадение</b>",
+        "quality_poor": "😐 <b>Слабое совпадение</b>"
+    }
+
     def __init__(self):
-        self.config = loader.ModuleConfig(
-            loader.ConfigValue(
-                "api_key",
-                None,
-                lambda: self.strings["cfg_api_key"],
-                validator=loader.validators.Union(loader.validators.String(), loader.validators.NoneType())
-            ),
-            loader.ConfigValue(
-                "cut_borders",
-                True,
-                lambda: self.strings["cfg_cut_borders"],
-                validator=loader.validators.Boolean()
-            )
-        )
+        self.api_url = "https://api.trace.moe/search"
+        self.shikimori_url = "https://shikimori.one/api/animes"
 
     async def client_ready(self, client, db):
         self.client = client
-        self.db = db
+        self._db = db
 
-    async def findanimecmd(self, message):
-        """Ищет аниме по скриншоту (реплай на изображение)"""
-        reply = await message.get_reply_message()
-        if not reply or not isinstance(reply.media, (MessageMediaPhoto, MessageMediaDocument)):
-            await message.edit("<emoji document_id=5352703271536454445>❌</emoji> Ответь на фото или GIF!")
-            return
+    def get_quality_indicator(self, similarity: float) -> str:
+        """Determine match quality"""
+        if similarity >= 95:
+            return self.strings["quality_excellent"]
+        elif similarity >= 85:
+            return self.strings["quality_good"]
+        elif similarity >= 70:
+            return self.strings["quality_medium"]
+        else:
+            return self.strings["quality_poor"]
 
-        await message.edit("<emoji document_id=5217592344957691550>🤨</emoji> Ищу аниме...")
+    async def download_media_safely(self, media) -> Optional[bytes]:
+        """Safe media download with retry"""
+        for attempt in range(3):
+            try:
+                image_bytes = await self.client.download_media(media, bytes, thumb=-1)
+                if image_bytes and len(image_bytes) > 0:
+                    return image_bytes
+            except Exception:
+                if attempt < 2:
+                    await asyncio.sleep(1)
+                continue
+        return None
 
-        try:
-            media = reply.media
-            file = await self.client.download_media(media, bytes, thumb=-1)
-            if not file:
-                await message.edit("<emoji document_id=5352703271536454445>❌</emoji> Не смог скачать картинку!")
-                return
-        except:
-            await message.edit("<emoji document_id=5352703271536454445>❌</emoji> Ошибка при скачивании!")
-            return
+    async def search_anime_api(self, image_bytes: bytes) -> Optional[Dict]:
+        """Search through Trace.moe API"""
+        params = {
+            "anilistInfo": "1",
+            "cutBorders": "1"
+        }
+        
+        for attempt in range(3):
+            try:
+                async with aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=45),
+                    headers={"User-Agent": "AnimeFinder/2.0"}
+                ) as session:
+                    data = aiohttp.FormData()
+                    data.add_field(
+                        "image", 
+                        BytesIO(image_bytes), 
+                        filename="anime_search.jpg", 
+                        content_type="image/jpeg"
+                    )
+                    
+                    async with session.post(self.api_url, params=params, data=data) as resp:
+                        if resp.status == 200:
+                            return await resp.json()
+                        elif resp.status == 429:  # penis
+                            await asyncio.sleep(3 * (attempt + 1))
+                            continue
+                        else:
+                            return None
+                            
+            except asyncio.TimeoutError:
+                if attempt < 2:
+                    await asyncio.sleep(2)
+                continue
+            except Exception:
+                if attempt < 2:
+                    await asyncio.sleep(1)
+                continue
+        
+        return None
 
-        url = "https://api.trace.moe/search"
-        params = {"anilistInfo": "1", "cutBorders": "1" if self.config["cut_borders"] else "0"}
-        if self.config["api_key"]:
-            params["key"] = self.config["api_key"]
-
-        try:
-            async with aiohttp.ClientSession() as session:
-                data = aiohttp.FormData()
-                data.add_field("image", BytesIO(file), filename="image.jpg", content_type="image/jpeg")
-                async with session.post(url, params=params, data=data) as resp:
-                    if resp.status != 200:
-                        await message.edit("<emoji document_id=5352703271536454445>❌</emoji> Ошибка API!")
-                        return
-                    result = await resp.json()
-        except:
-            await message.edit("<emoji document_id=5352703271536454445>❌</emoji> Не получилось связаться с API!")
-            return
-
-        if result.get("error"):
-            await message.edit(f"<emoji document_id=5352703271536454445>❌</emoji> Ошибка: {result['error']}")
-            return
-
-        if not result.get("result") or not result["result"]:
-            await message.edit("Аниме не найдено, попробуй другую картинку!")
-            return
-
-        debug_response = ""
-        for idx, res in enumerate(result["result"][:3]):
-            anilist = res.get("anilist", {})
-            title = anilist.get("title", {})
-            title_native = title.get("native", "Неизвестно")
-            title_romaji = title.get("romaji", "Неизвестно")
-            title_english = title.get("english", "Неизвестно")
-            episode = res.get("episode", "Не указан")
-            similarity = round(res.get("similarity", 0) * 100, 2)
-            from_time = int(res.get("from", 0))
-            to_time = int(res.get("to", 0))
-            from_time_str = f"{from_time // 60:02d}:{from_time % 60:02d}"
-            to_time_str = f"{to_time // 60:02d}:{to_time % 60:02d}"
-            debug_response += (
-                f"Результат {idx + 1}:\n"
-                f"<emoji document_id=5206593182820741575>💚</emoji> Оригинал: <b>{title_native}</b>\n"
-                f"<emoji document_id=5206593182820741575>💚</emoji> Ромадзи: <b>{title_romaji}</b>\n"
-                f"<emoji document_id=5467887736000093669>🇬🇧</emoji> Английское: <b>{title_english}</b>\n"
-                f"<emoji document_id=5336814422276992289>🌟</emoji> Эпизод: {episode}\n"
-                f"<emoji document_id=5325583469344989152>⏳</emoji> Таймкод: {from_time_str} - {to_time_str}\n"
-                f"<emoji document_id=5206587406089731561>⁉️</emoji> Схожесть: {similarity}%\n\n"
-            )
-
-        top_result = result["result"][0]
-        anilist = top_result.get("anilist", {})
-        title = anilist.get("title", {})
-        title_native = title.get("native", "Неизвестно")
-        title_romaji = title.get("romaji", "Неизвестно")
-        title_english = title.get("english", "Неизвестно")
-        episode = top_result.get("episode", "Не указан")
-        similarity = round(top_result.get("similarity", 0) * 100, 2)
-        from_time = int(top_result.get("from", 0))
-        to_time = int(top_result.get("to", 0))
-        from_time_str = f"{from_time // 60:02d}:{from_time % 60:02d}"
-        to_time_str = f"{to_time // 60:02d}:{to_time % 60:02d}"
-
-        title_russian = None
-        synonyms = anilist.get("synonyms", [])
-        for synonym in synonyms:
-            if any(c in synonym.lower() for c in "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"):
-                title_russian = synonym
-                break
-
-        if not title_russian:
-            title_russian = await self.get_russian_title(title_romaji, title_english)
-
-        response = (
-            f"<emoji document_id=5206593182820741575>💚</emoji> Оригинал: <b>{title_native}</b>\n"
-            f"<emoji document_id=5206593182820741575>💚</emoji> Ромадзи: <b>{title_romaji}</b>\n"
-            f"<emoji document_id=5467887736000093669>🇬🇧</emoji> Английское: <b>{title_english}</b>\n"
-        )
-        response += f"<emoji document_id=5461155860094921420>🇷🇺</emoji> Русское: <b>{title_russian}</b>\n" if title_russian else "<emoji document_id=5461155860094921420>🇷🇺</emoji> Русское: Не найдено\n"
-        response += (
-            f"<emoji document_id=5336814422276992289>🌟</emoji> Эпизод: {episode}\n"
-            f"<emoji document_id=5325583469344989152>⏳</emoji> Таймкод: {from_time_str} - {to_time_str}\n"
-            f"<emoji document_id=5206587406089731561>⁉️</emoji> Схожесть: {similarity}%"
-        )
-
-        if similarity < 90:
-            response = (
-                f"<emoji document_id=5312383351217201533>⚠️</emoji> Схожесть низкая, может быть неточно:\n\n"
-                f"{response}\n\n"
-                f"<emoji document_id=5332289648460853008>🌟</emoji> Все результаты:\n{debug_response}"
-            )
-
-        await message.edit(response)
-
-    async def get_russian_title(self, romaji, english):
+    async def get_russian_title(self, romaji: str, english: str) -> Optional[str]:
+        """Get Russian title via Shikimori API"""
         if not romaji and not english:
             return None
 
-        search_query = romaji if romaji != "Неизвестно" else english
-        if search_query == "Неизвестно":
-            search_query = english if english != "Неизвестно" else None
-        if not search_query:
+        search_query = romaji if romaji and romaji != "Unknown" else english
+        if not search_query or search_query == "Unknown":
             return None
 
-        search_query = search_query.replace("!", "").replace("*", "").strip()
-
-        url = "https://shikimori.one/api/animes"
-        params = {"search": search_query, "limit": 1}
-
+        search_query = re.sub(r'[^\w\s-]', '', search_query).strip()
+        
         try:
-            await asyncio.sleep(0.2)
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params) as resp:
-                    if resp.status != 200:
+            await asyncio.sleep(0.5)
+            
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=15),
+                headers={"User-Agent": "AnimeFinder/2.0"}
+            ) as session:
+                params = {
+                    "search": search_query,
+                    "limit": 5,
+                    "order": "popularity"
+                }
+                
+                async with session.get(self.shikimori_url, params=params) as resp:
+                    if resp.status == 200:
+                        results = await resp.json()
+                        
+                        for anime in results:
+                            russian_title = anime.get("russian")
+                            if russian_title and russian_title not in [romaji, english]:
+                                return russian_title
                         return None
-                    results = await resp.json()
-        except:
+                    else:
+                        return None
+                        
+        except Exception:
             return None
 
-        if not results or not results:
-            if search_query != english and english != "Неизвестно":
-                return await self.get_russian_title(english, romaji)
-            return None
+    def format_anime_result(self, result: Dict, russian_title: Optional[str] = None) -> str:
+        """Format anime search result"""
+        anilist = result.get("anilist", {})
+        title = anilist.get("title", {})
+        
+        native = title.get("native", "Unknown")
+        romaji = title.get("romaji", "Unknown")
+        english = title.get("english", "Unknown")
+        
+        episode = result.get("episode", "Unknown")
+        similarity = round(result.get("similarity", 0) * 100, 2)
 
-        anime = results[0]
-        title_russian = anime.get("russian") or anime.get("name")
-        if title_russian and title_russian != romaji and title_russian != english:
-            return title_russian
-        return None
-# хуй
-    async def togglecutcmd(self, message):
-        """Включает/выключает обрезку границ"""
-        self.config["cut_borders"] = not self.config["cut_borders"]
-        self.db.set(self.strings["name"], "cut_borders", self.config["cut_borders"])
-        await message.edit(f"Обрезка границ {'включена' if self.config['cut_borders'] else 'выключена'} ✅")
+        from_sec = int(result.get("from", 0))
+        to_sec = int(result.get("to", 0))
+        from_time = f"{from_sec // 60:02d}:{from_sec % 60:02d}"
+        to_time = f"{to_sec // 60:02d}:{to_sec % 60:02d}"
+
+        year = anilist.get("startDate", {}).get("year", "Unknown")
+        status = anilist.get("status", "Unknown")
+        genres = anilist.get("genres", [])
+        
+        quality = self.get_quality_indicator(similarity)
+        
+        response = f"{quality}\n\n"
+        response += f"🎌 <b>Original:</b> <code>{native}</code>\n"
+        response += f"🗾 <b>Romaji:</b> <code>{romaji}</code>\n"
+        response += f"🇬🇧 <b>English:</b> <code>{english}</code>\n"
+        
+        if russian_title:
+            response += f"🇷🇺 <b>Russian:</b> <code>{russian_title}</code>\n"
+        
+        response += f"\n📺 <b>Episode:</b> {episode}\n"
+        response += f"⏰ <b>Time:</b> {from_time} - {to_time}\n"
+        response += f"🎯 <b>Similarity:</b> {similarity}%\n"
+        response += f"📅 <b>Year:</b> {year}\n"
+        response += f"📊 <b>Status:</b> {status}\n"
+        
+        if genres:
+            response += f"🎭 <b>Genres:</b> {', '.join(genres[:6])}\n"
+        
+        return response
+
+    @loader.command(
+        ru_doc="Найти аниме по изображению"
+    )
+    async def animefinder(self, message: Message):
+        """Find anime by image"""
+        reply = await message.get_reply_message()
+        
+        if not reply or not reply.media:
+            await utils.answer(message, self.strings["error_no_reply"])
+            return
+
+        await utils.answer(message, self.strings["searching"])
+
+        image_bytes = await self.download_media_safely(reply.media)
+        if not image_bytes:
+            await utils.answer(message, self.strings["error_download"])
+            return
+
+        api_result = await self.search_anime_api(image_bytes)
+        if not api_result:
+            await utils.answer(message, self.strings["error_api"])
+            return
+
+        if api_result.get("error"):
+            await utils.answer(message, f"{self.strings['error_api']}\n<code>{api_result['error']}</code>")
+            return
+
+        results = api_result.get("result", [])
+        if not results:
+            await utils.answer(message, self.strings["not_found"])
+            return
+
+        main_result = results[0]
+        similarity = round(main_result.get("similarity", 0) * 100, 2)
+        
+        anilist = main_result.get("anilist", {})
+        title = anilist.get("title", {})
+        romaji = title.get("romaji", "")
+        english = title.get("english", "")
+        
+        russian_title = await self.get_russian_title(romaji, english)
+
+        response = self.format_anime_result(main_result, russian_title)
+ 
+        if similarity < 80 and len(results) > 1:
+            response += f"\n\n📋 <b>Alternative results:</b>\n"
+            for i, res in enumerate(results[1:4], 2):
+                alt_title = res.get("anilist", {}).get("title", {}).get("romaji", "Unknown")
+                alt_similarity = round(res.get("similarity", 0) * 100, 2)
+                response += f"<b>{i}.</b> {alt_title} ({alt_similarity}%)\n"
+        
+        await utils.answer(message, response)
