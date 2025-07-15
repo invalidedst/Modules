@@ -1,3 +1,13 @@
+#  _                          
+# |_   _|__   _ _    ___  
+#   | |/ _ \ \/ / _` | '_ \ / _ \ 
+#   | | (_) >  < (_| | | | | (_) |
+#   |_|\_/_/\_\,_|_| |_|\___/ 
+#                              
+# meta banner: https://i.ibb.co/S7f3RT0Y/image-10097.jpg
+# meta developer: @Toxano_Modules
+# scope: @mqvon @Toxano_Modules
+
 import asyncio
 import aiohttp
 import hashlib
