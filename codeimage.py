@@ -144,8 +144,7 @@ class CodeImageMod(loader.Module):
             await self._client.send_file(
                 message.peer_id,
                 io.BytesIO(image_bytes),
-                mime_type="image/png",
-                attributes=[],
+                mime_type="image/jpeg",
                 reply_to=message.reply_to_msg_id
             )
             
