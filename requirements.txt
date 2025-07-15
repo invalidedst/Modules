@@ -1,0 +1,6 @@
+aiohttp
+telethon
+hikkatl
+herokutl
+urllib3
+requests
