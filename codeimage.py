@@ -10,6 +10,7 @@
 
 import aiohttp
 import asyncio
+import io
 from herokutl.types import Message
 from .. import loader, utils
 
@@ -142,7 +143,9 @@ class CodeImageMod(loader.Module):
             
             await self._client.send_file(
                 message.peer_id,
-                image_bytes,
+                io.BytesIO(image_bytes),
+                file_name="code.png",
+                force_document=False,
                 reply_to=message.reply_to_msg_id
             )
             
