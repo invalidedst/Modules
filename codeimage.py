@@ -12,6 +12,7 @@ import aiohttp
 import asyncio
 import io
 from herokutl.types import Message
+from telethon.tl.types import DocumentAttributeImageSize
 from .. import loader, utils
 
 @loader.tds
@@ -144,7 +145,8 @@ class CodeImageMod(loader.Module):
             await self._client.send_file(
                 message.peer_id,
                 io.BytesIO(image_bytes),
-                mime_type="image/jpeg",
+                force_document=False,
+                file_name="code.webp",
                 reply_to=message.reply_to_msg_id
             )
             
