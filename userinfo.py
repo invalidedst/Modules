@@ -8,12 +8,9 @@
 # meta developer: @toxano_modules 
 # scope: @toxano_modules
 
-import io
-import re
 import asyncio
 from datetime import datetime
 from telethon.errors import UserNotFoundError, FloodWaitError, ChatWriteForbiddenError
-from telethon.tl.types import User, UserProfilePhoto
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.functions.photos import GetUserPhotosRequest
 from .. import loader, utils

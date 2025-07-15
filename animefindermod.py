@@ -15,7 +15,7 @@ import re
 from typing import Optional, Dict
 from io import BytesIO
 from .. import loader, utils
-from herokutl.types import Message
+from hikkatl.types import Message
 
 
 @loader.tds
