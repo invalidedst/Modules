@@ -10,9 +10,7 @@
 
 import aiohttp
 import asyncio
-import io
 from herokutl.types import Message
-from telethon.tl.types import DocumentAttributeImageSize
 from .. import loader, utils
 
 @loader.tds
@@ -33,10 +31,10 @@ class CodeImageMod(loader.Module):
         self.config = loader.ModuleConfig(
             loader.ConfigValue(
                 "theme", 
-                "dracula", 
+                "vsc-dark-plus", 
                 "Тема оформления",
                 validator=loader.validators.Choice([
-                    "dracula", "vsc-dark-plus", "material-dark", "nord", 
+                    "vsc-dark-plus", "dracula", "material-dark", "nord", 
                     "darcula", "atom-dark", "synthwave84", "hopscotch"
                 ])
             ),
@@ -62,7 +60,7 @@ class CodeImageMod(loader.Module):
             '.sql': 'sql', '.md': 'markdown', '.txt': 'text'
         }
 
-        self.api_url = "https://code2img.vercel.app/api/to-image"
+        self.api_url = "https://sourcecodeshots.com/api/image"
 
     async def client_ready(self, client, db):
         self._client = client
@@ -73,21 +71,46 @@ class CodeImageMod(loader.Module):
         return self.ext_to_lang.get(ext, 'text')
 
     async def generate_image(self, code, language):
-        params = {
-            'theme': self.config["theme"],
-            'language': language,
-            'line-numbers': str(self.config["line_numbers"]).lower(),
-            'scale': str(self.config["scale"]),
-            'show-background': 'true',
-            'padding': '5'
+        if language == 'javascript':
+            language = 'js'
+        elif language == 'python':
+            language = 'python'
+        elif language == 'typescript':
+            language = 'ts'
+        elif language == 'cpp':
+            language = 'cpp'
+        elif language == 'java':
+            language = 'java'
+        elif language == 'text':
+            language = 'text'
+        
+        theme_map = {
+            'dracula': 'dracula',
+            'vsc-dark-plus': 'dark-plus',
+            'material-dark': 'material-dark',
+            'nord': 'nord',
+            'darcula': 'darcula',
+            'atom-dark': 'atom-dark',
+            'synthwave84': 'synthwave84',
+            'hopscotch': 'hopscotch'
+        }
+        
+        theme = theme_map.get(self.config["theme"], 'dark-plus')
+        
+        payload = {
+            'code': code,
+            'settings': {
+                'language': language,
+                'theme': theme,
+                'tabWidth': 2
+            }
         }
         
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 self.api_url,
-                data=code,
-                params=params,
-                headers={'Content-Type': 'text/plain'}
+                json=payload,
+                headers={'Content-Type': 'application/json'}
             ) as response:
                 if response.status == 200:
                     return await response.read()
@@ -144,9 +167,8 @@ class CodeImageMod(loader.Module):
             
             await self._client.send_file(
                 message.peer_id,
-                io.BytesIO(image_bytes),
+                image_bytes,
                 force_document=False,
-                file_name="code.webp",
                 reply_to=message.reply_to_msg_id
             )
             
