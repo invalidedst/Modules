@@ -12,6 +12,7 @@ import asyncio
 from datetime import datetime
 from herokutl.types import Message
 from .. import loader, utils
+import re
 
 @loader.tds
 class UserInfoMod(loader.Module):
@@ -22,7 +23,6 @@ class UserInfoMod(loader.Module):
         "processing": "🔍 <b>Получаю информацию о пользователе...</b>",
         "user_not_found": "❌ <b>Пользователь не найден!</b>",
         "invalid_args": "❌ <b>Использование:</b> <code>{}check @username</code> или <code>{}check user_id</code>\n💡 <b>Также можно использовать в ответ на сообщение</b>",
-        "flood_wait": "⏳ <b>Слишком много запросов! Подождите {} секунд</b>",
         "error": "❌ <b>Ошибка при получении информации:</b> <code>{}</code>",
         "no_user": "❌ <b>Не удалось определить пользователя</b>",
         "deleted_account": "🗑 <b>Удаленный аккаунт</b>",
@@ -34,11 +34,6 @@ class UserInfoMod(loader.Module):
         "verified_no": "❌ Нет",
         "restricted_yes": "🚫 Да",
         "restricted_no": "✅ Нет",
-        "scam_yes": "⚠️ Да",
-        "scam_no": "✅ Нет",
-        "fake_yes": "🆔 Да",
-        "fake_no": "✅ Нет",
-        "hidden": "🔒 Скрыт",
         "not_set": "📝 Не указан",
         "unknown": "❓ Неизвестно"
     }
@@ -47,7 +42,6 @@ class UserInfoMod(loader.Module):
         "processing": "🔍 <b>Получаю информацию о пользователе...</b>",
         "user_not_found": "❌ <b>Пользователь не найден!</b>",
         "invalid_args": "❌ <b>Использование:</b> <code>{}check @username</code> или <code>{}check user_id</code>\n💡 <b>Также можно использовать в ответ на сообщение</b>",
-        "flood_wait": "⏳ <b>Слишком много запросов! Подождите {} секунд</b>",
         "error": "❌ <b>Ошибка при получении информации:</b> <code>{}</code>",
         "no_user": "❌ <b>Не удалось определить пользователя</b>",
         "deleted_account": "🗑 <b>Удаленный аккаунт</b>",
@@ -59,11 +53,6 @@ class UserInfoMod(loader.Module):
         "verified_no": "❌ Нет",
         "restricted_yes": "🚫 Да",
         "restricted_no": "✅ Нет",
-        "scam_yes": "⚠️ Да",
-        "scam_no": "✅ Нет",
-        "fake_yes": "🆔 Да",
-        "fake_no": "✅ Нет",
-        "hidden": "🔒 Скрыт",
         "not_set": "📝 Не указан",
         "unknown": "❓ Неизвестно"
     }
@@ -72,24 +61,15 @@ class UserInfoMod(loader.Module):
         self._client = client
         self._db = db
 
-    def format_date(self, timestamp):
-        """Форматирует дату в читаемый вид"""
-        if not timestamp:
-            return self.strings["unknown"]
-        
-        try:
-            dt = datetime.fromtimestamp(timestamp)
-            return dt.strftime("%d.%m.%Y %H:%M:%S")
-        except:
-            return self.strings["unknown"]
+
 
     def format_user_info(self, user, full_user=None):
         """Форматирует информацию о пользователе"""
         if not user:
             return self.strings["deleted_account"]
 
-        # Базовая информация
-        info = f"👤 <b>Информация о пользователе:</b>\n\n"
+        # Создаем красивый интерфейс с цитированием
+        info = f"<blockquote><b>📋 Информация о пользователе</b></blockquote>\n\n"
         
         # ID и основная информация
         if hasattr(user, 'id'):
@@ -97,7 +77,7 @@ class UserInfoMod(loader.Module):
         
         # Имя
         if hasattr(user, 'first_name') and user.first_name:
-            info += f"👋 <b>Имя:</b> {utils.escape_html(user.first_name)}"
+            info += f"👤 <b>Имя:</b> {utils.escape_html(user.first_name)}"
             if hasattr(user, 'last_name') and user.last_name:
                 info += f" {utils.escape_html(user.last_name)}"
             info += "\n"
@@ -121,17 +101,6 @@ class UserInfoMod(loader.Module):
         if hasattr(user, 'restricted'):
             info += f"🚫 <b>Ограничен:</b> {self.strings['restricted_yes'] if user.restricted else self.strings['restricted_no']}\n"
         
-        if hasattr(user, 'scam'):
-            info += f"⚠️ <b>Скам:</b> {self.strings['scam_yes'] if user.scam else self.strings['scam_no']}\n"
-        
-        if hasattr(user, 'fake'):
-            info += f"🆔 <b>Фейк:</b> {self.strings['fake_yes'] if user.fake else self.strings['fake_no']}\n"
-        
-        # Дата создания аккаунта (приблизительная)
-        if hasattr(user, 'id') and user.id:
-            approx_date = self.estimate_registration_date(user.id)
-            info += f"📅 <b>Примерная дата создания:</b> {approx_date}\n"
-        
         # Последняя активность
         if hasattr(user, 'status') and user.status:
             status_text = self.format_user_status(user.status)
@@ -141,42 +110,9 @@ class UserInfoMod(loader.Module):
         if hasattr(user, 'phone') and user.phone:
             info += f"📱 <b>Телефон:</b> +{user.phone}\n"
         
-        if hasattr(user, 'about') and user.about:
-            info += f"📄 <b>Описание:</b> {utils.escape_html(user.about[:200])}\n"
-        
         return info
 
-    def estimate_registration_date(self, user_id):
-        """Приблизительная оценка даты регистрации по ID"""
-        try:
-            # Приблизительные данные на основе роста ID в Telegram
-            # Это грубая оценка, не точная дата
-            if user_id < 10000:
-                return "2013-2014 (ранний пользователь)"
-            elif user_id < 100000:
-                return "2014-2015"
-            elif user_id < 1000000:
-                return "2015-2016"
-            elif user_id < 10000000:
-                return "2016-2017"
-            elif user_id < 100000000:
-                return "2017-2018"
-            elif user_id < 500000000:
-                return "2018-2019"
-            elif user_id < 1000000000:
-                return "2019-2020"
-            elif user_id < 2000000000:
-                return "2020-2021"
-            elif user_id < 3000000000:
-                return "2021-2022"
-            elif user_id < 4000000000:
-                return "2022-2023"
-            elif user_id < 5000000000:
-                return "2023-2024"
-            else:
-                return "2024-настоящее время"
-        except:
-            return self.strings["unknown"]
+
 
     def format_user_status(self, status):
         """Форматирует статус пользователя"""
@@ -198,13 +134,26 @@ class UserInfoMod(loader.Module):
         else:
             return "⚪ Неизвестно"
 
-    def get_user_info_from_message(self, message, reply=None):
-        """Получает информацию о пользователе из сообщения"""
-        if reply and reply.sender:
-            return reply.sender
-        elif message.sender:
-            return message.sender
-        return None
+    async def get_user_entity(self, identifier):
+        """Получает пользователя по username или ID"""
+        try:
+            if isinstance(identifier, str):
+                # Убираем @ если есть
+                if identifier.startswith('@'):
+                    identifier = identifier[1:]
+                
+                # Проверяем, является ли это числом (ID)
+                if identifier.isdigit():
+                    user_id = int(identifier)
+                    return await self._client.get_entity(user_id)
+                else:
+                    # Это username
+                    return await self._client.get_entity(identifier)
+            else:
+                # Это уже ID
+                return await self._client.get_entity(identifier)
+        except Exception as e:
+            return None
 
     @loader.command(
         ru_doc="<@username или ID> - Получить информацию о пользователе"
@@ -221,18 +170,19 @@ class UserInfoMod(loader.Module):
             user_entity = reply.sender
         # Если есть аргументы, пробуем найти пользователя
         elif args:
-            await utils.answer(message, "⚠️ <b>Поиск пользователя по ID/username пока не поддерживается.</b>\n💡 <b>Используйте команду в ответ на сообщение пользователя</b>")
-            return
+            await utils.answer(message, self.strings["processing"])
+            user_entity = await self.get_user_entity(args.split()[0])
+            if not user_entity:
+                await utils.answer(message, self.strings["user_not_found"])
+                return
         # Если нет реплая, используем отправителя текущего сообщения
         elif message.sender:
             user_entity = message.sender
         else:
+            prefix = getattr(self, 'get_prefix', lambda: '.')()
             await utils.answer(
                 message, 
-                self.strings["invalid_args"].format(
-                    self.get_prefix(), 
-                    self.get_prefix()
-                )
+                self.strings["invalid_args"].format(prefix, prefix)
             )
             return
         
@@ -240,15 +190,34 @@ class UserInfoMod(loader.Module):
             await utils.answer(message, self.strings["user_not_found"])
             return
         
-        # Показываем процесс
-        await utils.answer(message, self.strings["processing"])
+        # Показываем процесс (если не показывался ранее)
+        if not args:
+            await utils.answer(message, self.strings["processing"])
         
         try:
             # Форматируем информацию
             info_text = self.format_user_info(user_entity, None)
             
-            # Отправляем информацию
-            await utils.answer(message, info_text)
+            # Пытаемся получить аватарку
+            try:
+                photo = await self._client.download_profile_photo(user_entity, bytes)
+                if photo:
+                    # Отправляем фото с информацией
+                    await self._client.send_file(
+                        message.peer_id,
+                        photo,
+                        caption=info_text,
+                        parse_mode='html',
+                        reply_to=message.reply_to_msg_id
+                    )
+                    # Удаляем сообщение "Получаю информацию..."
+                    await message.delete()
+                else:
+                    # Если нет фото, отправляем просто текст
+                    await utils.answer(message, info_text)
+            except Exception:
+                # Если не удалось получить фото, отправляем просто текст
+                await utils.answer(message, info_text)
                 
         except Exception as e:
             await utils.answer(message, self.strings["error"].format(str(e)))
