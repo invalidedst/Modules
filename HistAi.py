@@ -1,3 +1,12 @@
+#  _____                          
+# |_   _|____  ____ _ _ __   ___  
+#   | |/ _ \ \/ / _` | '_ \ / _ \ 
+#   | | (_) >  < (_| | | | | (_) |
+#   |_|\___/_/\_\__,_|_| |_|\___/ 
+#                             
+# meta developer: @Toxano_Modules
+# scope: @Toxano_Modules
+
 from herokutl.types import Message
 from .. import loader, utils
 import asyncio
