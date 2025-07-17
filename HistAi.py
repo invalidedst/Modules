@@ -1,12 +1,3 @@
-#  _____                          
-# |_   _|____  ____ _ _ __   ___  
-#   | |/ _ \ \/ / _` | '_ \ / _ \ 
-#   | | (_) >  < (_| | | | | (_) |
-#   |_|\___/_/\_\__,_|_| |_|\___/ 
-#                              
-# meta developer: @Toxano_Modules
-# scope: @Toxano_Modules
-
 from herokutl.types import Message
 from .. import loader, utils
 import asyncio
@@ -17,7 +8,7 @@ from typing import List
 @loader.tds
 class HistAI(loader.Module):
     """кидает что было пока ты отходил по дрочить  
-    📄 Гайд: https://telegra.ph/NE-TUTOR-07-17"""
+    📄 Гайд: [NE TUTOR](https://telegra.ph/NE-TUTOR-07-17)"""
     strings = {
         "name": "HistAI",
         "cfg_key": "Ключ Gemini",
@@ -61,7 +52,7 @@ class HistAI(loader.Module):
                 username = getattr(sender, "username", None) or ""
                 if username.endswith("_bot"):
                     continue
-                nick = f"@{username}" if username else (sender.first_name or str(sender.id or "Unknown"))
+                nick = username if username else str(sender.first_name or sender.id or "Unknown")
             ts = msg.date.strftime("%H:%M")
             lines.append(f"[{ts}] {nick}: {txt}")
         return "\n".join(lines)
@@ -72,12 +63,12 @@ class HistAI(loader.Module):
         if not self.config["gemini_key"]:
             await utils.answer(message, self.strings["no_key"])
             return
-        await utils.answer(message, self.strings["processing"])
 
+        await message.delete()  # убираем "Ща чекну…"
         chat_id = utils.get_chat_id(message)
         msgs = [m async for m in self.client.iter_messages(chat_id, limit=self.config["history_limit"])]
         if not msgs:
-            await utils.answer(message, "<b>Сообщений нет.</b>")
+            await message.respond("<b>Сообщений нет.</b>")
             return
 
         text = await self._prep(msgs)
@@ -87,9 +78,19 @@ class HistAI(loader.Module):
             "Составь подробный нумерованный список (1.-10.) из 10 пунктов, "
             "описывающих, что делали/обсуждали участники. "
             "Добавь небольшие детали, но не перегружай. "
-            "Используй ники или юзернеймы. "
+            "Используй ники или юзернеймы без символа @. "
             f"{'Можно материться.' if mode == 'agro' else 'Без мата.'} "
             "Не добавляй вводных фраз."
         )
         res = await self._ask(prompt, text)
-        await utils.answer(message, self.strings["done"].format(cnt=len(msgs), txt=res))
+
+        try:
+            await message.respond(self.strings["done"].format(cnt=len(msgs), txt=res))
+        except Exception as e:
+            if "TOPIC_CLOSED" in str(e):
+                await message.respond(
+                    "<emoji document_id=5312526098750252863>🚫</emoji> <b>Не могу отправить в закрытую/форум-ветку. "
+                    "Вызови команду в обычном чате или открой тему.</b>"
+                )
+            else:
+                await message.respond(f"<b>Ошибка отправки: {e}</b>")
