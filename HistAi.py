@@ -1,22 +1,26 @@
-#  _____                          
-# |_   _|____  ____ _ _ __   ___  
-#   | |/ _ \ \/ / _` | '_ \ / _ \ 
+#  _____
+# |_   _|____  ____ _ _ __   ___
+#   | |/ _ \ \/ / _` | '_ \ / _ \
 #   | | (_) >  < (_| | | | | (_) |
-#   |_|\___/_/\_\__,_|_| |_|\___/ 
-#                             
+#   |_|\___/_/\_\__,_|_| |_|\___/
+#
 # meta developer: @Toxano_Modules
 # scope: @Toxano_Modules
 
-from herokutl.types import Message
+from telethon.tl.custom import Button
+from telethon.types import Message
 from .. import loader, utils
 import asyncio
 import google.generativeai as genai
 from typing import List, Optional
 
+CHUNK_SEP = "\n"
+MAX_PAGE  = 3900
+
 @loader.tds
 class HistAI(loader.Module):
-    """кидает что было пока ты отходил по дрочить  
-    📄 Гайд: https://telegra.ph/NE-TUTOR-07-17"""
+    """кидает что было пока ты отходил""" #хуй
+
     strings = {
         "name": "HistAI",
         "cfg_key": "Ключ Gemini",
@@ -24,9 +28,10 @@ class HistAI(loader.Module):
         "cfg_mode": "Режим: agro / norm",
         "no_key": "<emoji document_id=5312526098750252863>🚫</emoji> <b>Ключ Gemini не задан</b>",
         "processing": "<emoji document_id=5326015457155770266>⏳</emoji> <b>Ща чекну…</b>",
-        "done_all": "<emoji document_id=5328311576736833844>🤖</emoji> <b>Пока ты дрочил, в чате было такое:</b>\n\n<blockquote expandable>{txt}</blockquote>",
-        "done_user": "<emoji document_id=5328311576736833844>🤖</emoji> <b>Пока ты дрочил, {nick} написал:</b>\n\n<blockquote expandable>{txt}</blockquote>",
+        "done_all": "<emoji document_id=5328311576736833844>🤖</emoji> <b>AI проанализировал последние {limit} сообщений.\nВот что вы пропустили:</b>",
+        "done_user": "<emoji document_id=5328311576736833844>🤖</emoji> <b>AI проанализировал последние {limit} сообщений от {nick}.\nВот что вы пропустили:</b>",
         "no_target": "<b>Кого чекать? Укажи @username или реплай.</b>",
+        "page": "📄 {cur}/{total}",
     }
 
     def __init__(self):
@@ -35,6 +40,7 @@ class HistAI(loader.Module):
             loader.ConfigValue("history_limit", 250, self.strings["cfg_limit"], validator=loader.validators.Integer()),
             loader.ConfigValue("mode", "norm", self.strings["cfg_mode"], validator=loader.validators.Choice(["norm", "agro"])),
         )
+        self._db = {}
 
     async def client_ready(self, client, db):
         if self.config["gemini_key"]:
@@ -54,8 +60,7 @@ class HistAI(loader.Module):
         for msg in reversed(msgs):
             if msg.sender and str(getattr(msg.sender, "username", "") or "").endswith("_bot"):
                 continue
-            nick = str(getattr(msg.sender, "username", "") or getattr(msg.sender, "first_name", "") or getattr(msg.sender, "id", "Unknown"))
-            ts = msg.date.strftime("%H:%M")
+            nick = str(getattr(msg.sender, "first_name", "") or str(getattr(msg.sender, "id", "Unknown")))
 
             if msg.sticker:
                 content = "[стикер]"
@@ -66,9 +71,9 @@ class HistAI(loader.Module):
             elif msg.video:
                 content = "[видео]"
             elif msg.video_note:
-                content = "[кружок]"
+                content = "[видео-кружок]"
             elif msg.voice:
-                content = "[голос]"
+                content = "[голосовуха]"
             elif msg.audio:
                 content = "[аудио]"
             elif msg.document:
@@ -76,7 +81,7 @@ class HistAI(loader.Module):
             else:
                 content = (msg.raw_text or "").strip()
 
-            lines.append(f"[{ts}] {nick}: {content}")
+            lines.append(f"{nick}: {content}")
         return "\n".join(lines)
 
     def _prep_user(self, msgs: List[Message], user_id: int, user_name: str) -> str:
@@ -84,8 +89,7 @@ class HistAI(loader.Module):
         for msg in reversed(msgs):
             if msg.sender_id != user_id:
                 continue
-            ts = msg.date.strftime("%H:%M")
-
+            content = ""
             if msg.sticker:
                 content = "[стикер]"
             elif msg.gif:
@@ -95,23 +99,47 @@ class HistAI(loader.Module):
             elif msg.video:
                 content = "[видео]"
             elif msg.video_note:
-                content = "[кружок]"
+                content = "[видео-кружок]"
             elif msg.voice:
-                content = "[голос]"
+                content = "[голосовуха]"
             elif msg.audio:
                 content = "[аудио]"
             elif msg.document:
                 content = "[файл]"
             else:
                 content = (msg.raw_text or "").strip()
-
-            lines.append(f"[{ts}] {content}")
+            lines.append(content)
         return "\n".join(lines)
+
+    def _paginate(self, text: str) -> List[str]:
+        pages = []
+        for line in text.splitlines():
+            if not pages or len(pages[-1]) + len(line) + 1 > MAX_PAGE:
+                pages.append(line)
+            else:
+                pages[-1] += "\n" + line
+        return pages or [""]
+
+    async def _send_page(self, chat_id: int, pages: List[str], idx: int, header: str, reply_to: int):
+        kb = []
+        if len(pages) > 1:
+            row = []
+            if idx > 0:
+                row.append(Button.inline("⬅️", f"hist:{idx-1}"))
+            row.append(Button.inline(self.strings["page"].format(cur=idx+1, total=len(pages)), "noop"))
+            if idx < len(pages) - 1:
+                row.append(Button.inline("➡️", f"hist:{idx+1}"))
+            kb = [row]
+        await self.client.send_message(
+            entity=chat_id,
+            message=f"{header}\n\n<blockquote expandable>{pages[idx]}</blockquote>",
+            buttons=kb or None,
+            reply_to=reply_to
+        )
 
     @loader.command(
         ru_doc="Показать всё, что происходило пока ты отошёл. Можно указать @username или реплай.",
         en_doc="Show what happened while you were away. Use @username or reply to filter.",
-        de_doc="Zeige, was passierte, während du weg warst. Nutze @username oder Antwort.",
     )
     async def ch(self, message: Message):
         """.ch (@username / reply) — конкретный юзер  
@@ -121,7 +149,8 @@ class HistAI(loader.Module):
             return
 
         chat_id = utils.get_chat_id(message)
-        msgs = [m async for m in self.client.iter_messages(chat_id, limit=self.config["history_limit"])]
+        limit = self.config["history_limit"]
+        msgs = [m async for m in self.client.iter_messages(chat_id, limit=limit)]
         if not msgs:
             await utils.answer(message, "<b>Сообщений нет.</b>")
             return
@@ -133,7 +162,7 @@ class HistAI(loader.Module):
 
         if reply and reply.sender:
             user_id = reply.sender_id
-            user_name = reply.sender.username or reply.sender.first_name or str(reply.sender.id)
+            user_name = reply.sender.first_name or str(reply.sender.id)
         else:
             args = utils.get_args_raw(message).strip()
             if args.startswith("@"):
@@ -141,48 +170,52 @@ class HistAI(loader.Module):
                 try:
                     ent = await self.client.get_entity(username)
                     user_id = ent.id
-                    user_name = username
+                    user_name = ent.first_name or str(ent.id)
                 except Exception:
                     user_id = None
             elif args.isdigit():
                 user_id = int(args)
                 try:
                     ent = await self.client.get_entity(user_id)
-                    user_name = ent.username or ent.first_name or str(user_id)
+                    user_name = ent.first_name or str(ent.id)
                 except Exception:
                     user_id = None
 
         if user_id is None:
             text = self._prep_all(msgs)
-            if not text:
-                await message.respond("<b>Ничего не найдено.</b>")
-                return
+            header = self.strings["done_all"].format(limit=limit)
             prompt = (
-                "Составь подробный нумерованный список (1.-10.) из 10 пунктов, "
-                "описывающих, что делали/обсуждали участники. "
-                "Выводи ник без символа @. "
-                f"{'Можно материться.' if self.config['mode'] == 'agro' else 'Без мата.'} "
-                "Не добавляй вводных фраз."
+                f"Сделай краткую, сжатую сводку, объединяя повторы и технические провалы в одну фразу.\n"
+                f"Каждый пункт начинай с «- » и указывай только имя без @.\n"
+                f"Учитывай текст, фото и файлы (кратко: [фото], [файл] и т.д.).\n"
+                f"{'Можешь материться и быть язвительным.' if self.config['mode'] == 'agro' else 'Без мата.'}"
             )
             res = await self._ask(prompt, text)
-            out_str = self.strings["done_all"].format(txt=res)
+            pages = self._paginate(res)
+            self._db[f"hist:{chat_id}"] = pages
+            await self._send_page(chat_id, pages, 0, header, message.reply_to_msg_id or message.id)
         else:
             text = self._prep_user(msgs, user_id, user_name)
-            if not text:
-                await message.respond("<b>Ничего не найдено.</b>")
-                return
+            header = self.strings["done_user"].format(limit=limit, nick=user_name)
             prompt = (
-                "Составь подробный нумерованный список (1.-10.) из 10 пунктов, "
-                "описывающих, что делал/писал этот участник. "
-                "Выводи ник без символа @. "
-                f"{'Можно материться.' if self.config['mode'] == 'agro' else 'Без мата.'} "
-                "Не добавляй вводных фраз."
+                f"Сделай краткую, сжатую сводку сообщений пользователя, объединяя повторы.\n"
+                f"Каждый пункт начинай с «- ».\n"
+                f"Учитывай текст, фото и файлы (кратко: [фото], [файл] и т.д.).\n"
+                f"{'Можешь материться и быть язвительным.' if self.config['mode'] == 'agro' else 'Без мата.'}"
             )
             res = await self._ask(prompt, text)
-            out_str = self.strings["done_user"].format(nick=user_name, txt=res)
+            pages = self._paginate(res)
+            self._db[f"hist:{chat_id}"] = pages
+            await self._send_page(chat_id, pages, 0, header, message.reply_to_msg_id or message.id)
 
-        await self.client.send_message(
-            entity=message.chat_id,
-            message=out_str,
-            reply_to=message.reply_to_msg_id or message.id
-        )
+    @loader.callback_handler("hist")
+    async def _flip_page(self, call):
+        idx = int(call.data.split(":", 1)[1])
+        chat_id = call.message.chat_id
+        pages = self._db.get(f"hist:{chat_id}")
+        if not pages or idx < 0 or idx >= len(pages):
+            await call.answer("Нет страниц")
+            return
+        header = call.message.text.split("\n\n<blockquote expandable>")[0]
+        await self._send_page(chat_id, pages, idx, header, call.message.reply_to_msg_id or call.message.id)
+        await call.message.delete()
