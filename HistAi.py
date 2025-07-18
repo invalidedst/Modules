@@ -8,7 +8,7 @@
 # scope: @Toxano_Modules
 
 from telethon.tl.custom import Button
-from telethon.types import Message
+from telethon.types import Message, User, Channel
 from .. import loader, utils
 import asyncio
 import google.generativeai as genai
@@ -22,6 +22,15 @@ CB_PREFIX = "histai_"
 HARD_LIMIT = 300
 MAX_LINE_LEN = 120
 
+def safe_name(ent) -> str:
+    if not ent:
+        return "System"
+    if isinstance(ent, User):
+        return ent.first_name or "Без_имени"
+    if isinstance(ent, Channel):
+        return ent.title or "Канал"
+    return "Unknown"
+
 @loader.tds
 class HistAI(loader.Module):
     """Summarises what you missed while you were away."""
@@ -31,6 +40,7 @@ class HistAI(loader.Module):
         "cfg_key": "Gemini API key",
         "cfg_limit": "How many messages to take",
         "cfg_mode": "Mode: norm / agro / neko",
+        "cfg_model": "Gemini model (gemini-1.5-flash, gemini-1.5-pro, etc.)",
         "no_key": "<emoji document_id=5312526098750252863>🚫</emoji> <b>API key not set</b>",
         "processing": "<emoji document_id=5326015457155770266>⏳</emoji> <b>Hold on…</b>",
         "done_all": "<emoji document_id=5328311576736833844>🤖</emoji> <b>AI analysed the last {limit} messages.\nHere's what you missed:</b>",
@@ -45,6 +55,7 @@ class HistAI(loader.Module):
             loader.ConfigValue("gemini_key", "", self.strings["cfg_key"], validator=loader.validators.Hidden()),
             loader.ConfigValue("history_limit", 150, self.strings["cfg_limit"], validator=loader.validators.Integer(minimum=1, maximum=HARD_LIMIT)),
             loader.ConfigValue("mode", "norm", self.strings["cfg_mode"], validator=loader.validators.Choice(["norm", "agro", "neko"])),
+            loader.ConfigValue("model", "gemini-1.5-flash", self.strings["cfg_model"], validator=loader.validators.String()),
         )
         self._db = {}
 
@@ -55,10 +66,12 @@ class HistAI(loader.Module):
         key = self.config["gemini_key"].strip() or os.getenv("GOOGLE_API_KEY")
         if not key:
             return "❌ No key in config or env GOOGLE_API_KEY."
+
+        model = self.config["model"].strip() or "gemini-1.5-flash"
         try:
             genai.configure(api_key=key)
             response = await asyncio.to_thread(
-                genai.GenerativeModel("gemini-1.5-flash").generate_content,
+                genai.GenerativeModel(model).generate_content,
                 prompt + "\n\n" + text,
                 safety_settings={
                     "HARASSMENT": "BLOCK_NONE",
@@ -91,19 +104,18 @@ class HistAI(loader.Module):
         for m in reversed(msgs[-HARD_LIMIT:]):
             if not m.sender:
                 continue
-            if (getattr(m.sender, "username") or "").endswith("_bot"):
+            username = getattr(m.sender, "username", None) or ""
+            if username.endswith("_bot"):
                 continue
-            name = m.sender.first_name or "Без_имени"
+            name = safe_name(m.sender)
             time = m.date.strftime("%H:%M")
             body = self._clean(m.raw_text) or self._media(m)
-
             if m.is_reply and m.reply_to and m.reply_to.reply_to_peer_id:
                 body = f"[reply] {body}"
             lines.append(f"{time} {name}: {body}")
         return "\n".join(lines)
 
     def _prep_user(self, msgs: List[Message], uid: int) -> str:
-
         msgs = [m for m in msgs if m.sender_id == uid]
         lines = []
         for m in reversed(msgs[-HARD_LIMIT:]):
@@ -155,7 +167,7 @@ class HistAI(loader.Module):
         limit = min(self.config["history_limit"], HARD_LIMIT)
 
         msgs = [m async for m in self.client.iter_messages(cid, limit=limit + 50)]
-        msgs = [m for m in msgs if not (getattr(m.sender, "username") or "").endswith("_bot")][:limit]
+        msgs = [m for m in msgs if m.sender and not (getattr(m.sender, "username", "") or "").endswith("_bot")][:limit]
 
         if not msgs:
             await utils.answer(message, "<b>Сообщений нет.</b>")
@@ -165,19 +177,19 @@ class HistAI(loader.Module):
 
         user_id, user_name = None, ""
         if reply := await message.get_reply_message():
-            user_id, user_name = reply.sender_id, (reply.sender.first_name or str(reply.sender.id))
+            user_id, user_name = reply.sender_id, safe_name(reply.sender)
         else:
             arg = utils.get_args_raw(message).strip()
             if arg.startswith("@"):
                 try:
                     ent = await self.client.get_entity(arg[1:])
-                    user_id, user_name = ent.id, (ent.first_name or str(ent.id))
+                    user_id, user_name = ent.id, safe_name(ent)
                 except Exception:
                     user_id = None
             elif arg.isdigit():
                 try:
                     ent = await self.client.get_entity(int(arg))
-                    user_id, user_name = ent.id, (ent.first_name or str(ent.id))
+                    user_id, user_name = ent.id, safe_name(ent)
                 except Exception:
                     user_id = None
 
@@ -192,32 +204,22 @@ class HistAI(loader.Module):
         if user_id is None:
             raw_text = self._prep_all(msgs)
             header = self.strings["done_all"].format(limit=len(msgs))
-            prompt = (
-                f"Ниже лог Telegram-чата в формате: ВРЕМЯ имя: текст или [медиа] или [reply]\n\n"
-                f"Сделай структурированный пересказ **без времени** для пользователя.\n"
-                f"Правила:\n"
-                f"- Каждая тема начинается с тире (-)\n"
-                f"- Указывай, кто с кем общался, без @\n"
-                f"- Указывай медиа: [фото], [видео], [голосовое], [стикер], [документ]\n"
-                f"- Указывай [reply], если ответ\n"
-                f"- Кратко, по делу\n"
-                f"- Тон: {tone}\n"
-                f"- Не выдумывай"
-            )
         else:
             raw_text = self._prep_user(msgs, user_id)
             header = self.strings["done_user"].format(limit=len(raw_text.splitlines()), nick=user_name)
-            prompt = (
-                f"Ниже все сообщения пользователя {user_name} в формате: ВРЕМЯ текст или [медиа] или [reply]\n\n"
-                f"Сделай структурированный пересказ **без времени** для пользователя.\n"
-                f"Правила:\n"
-                f"- Каждая тема начинается с тире (-)\n"
-                f"- Указывай медиа: [фото], [видео], [голосовое], [стикер], [документ]\n"
-                f"- Указывай [reply], если ответ\n"
-                f"- Кратко, по делу\n"
-                f"- Тон: {tone}\n"
-                f"- Не выдумывай"
-            )
+
+        prompt = (
+            f"Ниже лог Telegram-чата в формате: ВРЕМЯ имя/канал: текст или [медиа] или [reply]\n\n"
+            f"Сделай структурированный пересказ **без времени**.\n"
+            f"Правила:\n"
+            f"- Каждая тема начинается с тире (-)\n"
+            f"- Указывай, кто с кем общался\n"
+            f"- Указывай медиа: [фото], [видео], [голосовое], [стикер], [документ]\n"
+            f"- Указывай [reply], если ответ\n"
+            f"- Кратко, по делу\n"
+            f"- Тон: {tone}\n"
+            f"- Не выдумывай"
+        )
 
         ai_text = await self._ask(prompt, raw_text)
         if ai_text == "BLOCKED":
