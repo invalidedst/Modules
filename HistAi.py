@@ -12,32 +12,32 @@ from telethon.types import Message
 from .. import loader, utils
 import asyncio
 import google.generativeai as genai
-from typing import List, Optional
+from typing import List
 import os
 import re
 
 CHUNK_SEP = "\n"
 MAX_PAGE = 3900
 CB_PREFIX = "histai_"
-HARD_LIMIT = 180          
-MAX_LINE_LEN = 120         
+HARD_LIMIT = 300
+MAX_LINE_LEN = 120
 
 @loader.tds
 class HistAI(loader.Module):
-    """кидает что было пока ты отходил"""
+    """Summarises what you missed while you were away."""
 
     strings = {
         "name": "HistAI",
-        "cfg_key": "Ключ Gemini",
-        "cfg_limit": "Сколько сообщений брать",
-        "cfg_mode": "Режим: norm / agro / neko",
-        "no_key": "<emoji document_id=5312526098750252863>🚫</emoji> <b>Ключ Gemini не задан</b>",
-        "processing": "<emoji document_id=5326015457155770266>⏳</emoji> <b>Ща чекну…</b>",
-        "done_all": "<emoji document_id=5328311576736833844>🤖</emoji> <b>AI проанализировал последние {limit} сообщений.\nВот что вы пропустили:</b>",
-        "done_user": "<emoji document_id=5328311576736833844>🤖</emoji> <b>AI проанализировал последние {limit} сообщений от {nick}.\nВот что вы пропустили:</b>",
-        "no_target": "<b>Кого чекать? Укажи @username или реплай.</b>",
+        "cfg_key": "Gemini API key",
+        "cfg_limit": "How many messages to take",
+        "cfg_mode": "Mode: norm / agro / neko",
+        "no_key": "<emoji document_id=5312526098750252863>🚫</emoji> <b>API key not set</b>",
+        "processing": "<emoji document_id=5326015457155770266>⏳</emoji> <b>Hold on…</b>",
+        "done_all": "<emoji document_id=5328311576736833844>🤖</emoji> <b>AI analysed the last {limit} messages.\nHere's what you missed:</b>",
+        "done_user": "<emoji document_id=5328311576736833844>🤖</emoji> <b>AI analysed the last {limit} messages from {nick}.\nHere's what you missed:</b>",
+        "no_target": "<b>Who to check? Reply or mention a user.</b>",
         "page": "📄 {cur}/{total}",
-        "blocked": "<emoji document_id=5312526098750252863>🚫</emoji> <b>Gemini отказался анализировать чат (слишком много мата/оскорблений). Вот краткая сводка без ИИ:</b>",
+        "blocked": "<emoji document_id=5312526098750252863>🚫</emoji> <b>Gemini refused to analyse the chat.</b>",
     }
 
     def __init__(self):
@@ -54,7 +54,7 @@ class HistAI(loader.Module):
     async def _ask(self, prompt: str, text: str) -> str:
         key = self.config["gemini_key"].strip() or os.getenv("GOOGLE_API_KEY")
         if not key:
-            return "❌ Ни API-key в конфиге, ни переменная GOOGLE_API_KEY не заданы."
+            return "❌ No key in config or env GOOGLE_API_KEY."
         try:
             genai.configure(api_key=key)
             response = await asyncio.to_thread(
@@ -71,12 +71,12 @@ class HistAI(loader.Module):
                 return "BLOCKED"
             return response.text.strip()
         except Exception as e:
-            return f"Ошибка Gemini: {e}"
+            return f"Gemini error: {e}"
 
     def _clean(self, txt: str) -> str:
         if not txt:
             return ""
-        txt = re.sub(r"http\S+", "<ссылка>", txt)           # убираем ссылки
+        txt = re.sub(r"http\S+", "<ссылка>", txt)
         txt = re.sub(r"[а-яё]*[хx]+[уy]+[йiюяеё]\w*", "[мат]", txt, flags=re.I)
         return txt[:MAX_LINE_LEN]
 
@@ -93,24 +93,25 @@ class HistAI(loader.Module):
                 continue
             if (getattr(m.sender, "username") or "").endswith("_bot"):
                 continue
-            nick = f"{m.sender.first_name or 'Без_имени'} ({m.sender.id})"
+            name = m.sender.first_name or "Без_имени"
             time = m.date.strftime("%H:%M")
             body = self._clean(m.raw_text) or self._media(m)
-            if m.is_reply:
-                body = "→ " + body
-            lines.append(f"[{time}] {nick} > {body}")
+
+            if m.is_reply and m.reply_to and m.reply_to.reply_to_peer_id:
+                body = f"[reply] {body}"
+            lines.append(f"{time} {name}: {body}")
         return "\n".join(lines)
 
     def _prep_user(self, msgs: List[Message], uid: int) -> str:
+
+        msgs = [m for m in msgs if m.sender_id == uid]
         lines = []
         for m in reversed(msgs[-HARD_LIMIT:]):
-            if m.sender_id != uid:
-                continue
             time = m.date.strftime("%H:%M")
             body = self._clean(m.raw_text) or self._media(m)
-            if m.is_reply:
-                body = "→ " + body
-            lines.append(f"[{time}] {body}")
+            if m.is_reply and m.reply_to and m.reply_to.reply_to_peer_id:
+                body = f"[reply] {body}"
+            lines.append(f"{time} {body}")
         return "\n".join(lines)
 
     def _paginate(self, text: str) -> List[str]:
@@ -180,37 +181,47 @@ class HistAI(loader.Module):
                 except Exception:
                     user_id = None
 
-        owner = (await self.client.get_me()).first_name or "Хозяин"
+        mode = self.config["mode"]
+        tone_map = {
+            "norm": "строго по фактам, без эмоций",
+            "agro": "язвительный, саркастичный, с укусом",
+            "neko": "кавайный, с эмодзи (😸, 💖, 🐾) и ~мяу~"
+        }
+        tone = tone_map.get(mode, "нейтральный")
 
         if user_id is None:
             raw_text = self._prep_all(msgs)
             header = self.strings["done_all"].format(limit=len(msgs))
             prompt = (
-                f"Ниже список сообщений из Telegram-чата строго в хронологическом порядке.\n"
-                f"Каждая строка имеет формат:\n[время] имя (id) > текст или [тип медиа]\n\n"
-                f"Твоя задача — максимально точно пересказать только то, что действительно написали люди.\n"
-                f"- Не добавляй своих комментариев, не придумывай факты.\n"
-                f"- Не объединяй разных людей в одно лицо.\n"
-                f"- Используй формат: - [время] имя: краткий текст или [тип медиа]\n"
-                f"{'Будь слегка саркастичным, но не фантазируй.' if self.config['mode'] == 'agro' else 'Без мата и без фантазий.'}"
+                f"Ниже лог Telegram-чата в формате: ВРЕМЯ имя: текст или [медиа] или [reply]\n\n"
+                f"Сделай структурированный пересказ **без времени** для пользователя.\n"
+                f"Правила:\n"
+                f"- Каждая тема начинается с тире (-)\n"
+                f"- Указывай, кто с кем общался, без @\n"
+                f"- Указывай медиа: [фото], [видео], [голосовое], [стикер], [документ]\n"
+                f"- Указывай [reply], если ответ\n"
+                f"- Кратко, по делу\n"
+                f"- Тон: {tone}\n"
+                f"- Не выдумывай"
             )
         else:
             raw_text = self._prep_user(msgs, user_id)
             header = self.strings["done_user"].format(limit=len(raw_text.splitlines()), nick=user_name)
             prompt = (
-                f"Ниже все сообщения пользователя {user_name} (id{user_id}) из Telegram-чата.\n"
-                f"Каждая строка имеет формат:\n[время] текст или [фото/файл/…]\n\n"
-                f"Перечисли только то, что он действительно написал/отправил.\n"
-                f"Не добавляй ничего от себя.\n"
-                f"Формат: - [время] краткий текст или [тип медиа]\n"
-                f"{'Будь слегка саркастичным, но не выдумывай.' if self.config['mode'] == 'agro' else 'Без мата и без фантазий.'}"
+                f"Ниже все сообщения пользователя {user_name} в формате: ВРЕМЯ текст или [медиа] или [reply]\n\n"
+                f"Сделай структурированный пересказ **без времени** для пользователя.\n"
+                f"Правила:\n"
+                f"- Каждая тема начинается с тире (-)\n"
+                f"- Указывай медиа: [фото], [видео], [голосовое], [стикер], [документ]\n"
+                f"- Указывай [reply], если ответ\n"
+                f"- Кратко, по делу\n"
+                f"- Тон: {tone}\n"
+                f"- Не выдумывай"
             )
 
         ai_text = await self._ask(prompt, raw_text)
         if ai_text == "BLOCKED":
-
-            pages = self._paginate(raw_text)
-            header = self.strings["blocked"]
+            pages = [self.strings["blocked"]]
         elif ai_text.startswith("Ошибка"):
             pages = [ai_text]
         else:
