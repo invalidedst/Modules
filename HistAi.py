@@ -13,10 +13,11 @@ from .. import loader, utils
 import asyncio
 import google.generativeai as genai
 from typing import List, Optional
+import os
 
 CHUNK_SEP = "\n"
-MAX_PAGE  = 3900
-CB_PREFIX = "histai_"     
+MAX_PAGE = 3900
+CB_PREFIX = "histai_"
 
 @loader.tds
 class HistAI(loader.Module):
@@ -26,7 +27,7 @@ class HistAI(loader.Module):
         "name": "HistAI",
         "cfg_key": "Ключ Gemini",
         "cfg_limit": "Сколько сообщений брать",
-        "cfg_mode": "Режим: agro / norm",
+        "cfg_mode": "Режим: norm / agro / neko",
         "no_key": "<emoji document_id=5312526098750252863>🚫</emoji> <b>Ключ Gemini не задан</b>",
         "processing": "<emoji document_id=5326015457155770266>⏳</emoji> <b>Ща чекну…</b>",
         "done_all": "<emoji document_id=5328311576736833844>🤖</emoji> <b>AI проанализировал последние {limit} сообщений.\nВот что вы пропустили:</b>",
@@ -39,21 +40,27 @@ class HistAI(loader.Module):
         self.config = loader.ModuleConfig(
             loader.ConfigValue("gemini_key", "", self.strings["cfg_key"], validator=loader.validators.Hidden()),
             loader.ConfigValue("history_limit", 250, self.strings["cfg_limit"], validator=loader.validators.Integer(minimum=1, maximum=1000)),
-            loader.ConfigValue("mode", "norm", self.strings["cfg_mode"], validator=loader.validators.Choice(["norm", "agro"])),
+            loader.ConfigValue("mode", "norm", self.strings["cfg_mode"], validator=loader.validators.Choice(["norm", "agro", "neko"])),
         )
         self._db = {}
 
     async def client_ready(self, client, db):
         self.client = client
-        if self.config["gemini_key"]:
-            genai.configure(api_key=self.config["gemini_key"])
 
     async def _ask(self, prompt: str, text: str) -> str:
+        key = self.config["gemini_key"].strip()
+        if not key:
+            key = os.getenv("GOOGLE_API_KEY")
+        if not key:
+            return "❌ Ни API-key в конфиге, ни переменная GOOGLE_API_KEY не заданы."
         try:
-            return (await asyncio.to_thread(
-                genai.GenerativeModel("gemini-2.0-flash").generate_content,
-                prompt + "\n\n" + text
-            )).text.strip()
+            genai.configure(api_key=key)
+            return (
+                await asyncio.to_thread(
+                    genai.GenerativeModel("gemini-2.0-flash").generate_content,
+                    prompt + "\n\n" + text,
+                )
+            ).text.strip()
         except Exception as e:
             return f"Ошибка Gemini: {e}"
 
@@ -117,8 +124,6 @@ class HistAI(loader.Module):
         en_doc="Show what happened while you were away. Use @username or reply to filter.",
     )
     async def ch(self, message: Message):
-        """.ch (@username / reply) — конкретный юзер
-        .ch — вся история"""
         if not self.config["gemini_key"]:
             await utils.answer(message, self.strings["no_key"])
             return
@@ -156,26 +161,54 @@ class HistAI(loader.Module):
                 except Exception:
                     user_id = None
 
+        owner = (await self.client.get_me()).first_name or "Хозяин"
+
         if user_id is None:
             text = self._prep_all(msgs)
             header = self.strings["done_all"].format(limit=limit)
-            prompt = (
-                f"Сделай краткую, сжатую сводку, объединяя повторы и технические провалы в одну фразу.\n"
-                f"Каждый пункт начинай с «- » и указывай только имя без @.\n"
-                f"Учитывай текст, фото и файлы (кратко: [фото], [файл] и т.д.).\n"
-                f"{'Можешь материться и быть язвительным.' if self.config['mode'] == 'agro' else 'Без мата.'}"
-            )
+            if self.config["mode"] == "neko":
+                prompt = (
+                    f"Ты — очень-очень милая кошечка-ня❤️, зовут Нэко-тян! "
+                    f"Всегда обращайся к {owner} как «Хозяин-ня~» 😻. "
+                    f"Используй тонну милых эмодзи (❤️, ✨, (≧◡≦), ♡, 🌸, 😽). "
+                    f"Говори ласково, пискляво и заканчивай каждое предложение «ня~» ♡ "
+                    f"Не упоминай @никнеймы, просто имя. "
+                    f"Каждый пункт начинай с «- ✨». "
+                    f"Коротко обозначай медиа: [фото], [гиф], [файл] и т.д. "
+                    f"Объединяй повторы. "
+                    f"Заканчивай сводку фразой «Спасибо, Хозяин-ня~! 😽»"
+                )
+            else:
+                prompt = (
+                    f"Сделай краткую, сжатую сводку, объединяя повторы и технические провалы в одну фразу.\n"
+                    f"Каждый пункт начинай с «- » и указывай только имя без @.\n"
+                    f"Учитывай текст, фото и файлы (кратко: [фото], [файл] и т.д.).\n"
+                    f"{'Можешь материться и быть язвительным.' if self.config['mode'] == 'agro' else 'Без мата.'}"
+                )
             res = await self._ask(prompt, text)
             pages = self._paginate(res)
         else:
             text = self._prep_user(msgs, user_id, user_name)
             header = self.strings["done_user"].format(limit=limit, nick=user_name)
-            prompt = (
-                f"Сделай краткую, сжатую сводку сообщений пользователя, объединяя повторы.\n"
-                f"Каждый пункт начинай с «- ».\n"
-                f"Учитывай текст, фото и файлы (кратко: [фото], [файл] и т.д.).\n"
-                f"{'Можешь материться и быть язвительным.' if self.config['mode'] == 'agro' else 'Без мата.'}"
-            )
+            if self.config["mode"] == "neko":
+                prompt = (
+                    f"Ты — очень-очень милая кошечка-ня❤️, зовут Нэко-тян! "
+                    f"Всегда обращайся к {owner} как «Хозяин-ня~» 😻. "
+                    f"Используй тонну милых эмодзи (❤️, ✨, (≧◡≦), ♡, 🌸, 😽). "
+                    f"Говори ласково, пискляво и заканчивай каждое предложение «ня~» ♡ "
+                    f"Не упоминай @никнеймы, просто имя. "
+                    f"Каждый пункт начинай с «- ✨». "
+                    f"Коротко обозначай медиа: [фото], [гиф], [файл] и т.д. "
+                    f"Объединяй повторы. "
+                    f"Заканчивай сводку фразой «Спасибо, Хозяин-ня~! 😽»"
+                )
+            else:
+                prompt = (
+                    f"Сделай краткую, сжатую сводку сообщений пользователя, объединяя повторы.\n"
+                    f"Каждый пункт начинай с «- ».\n"
+                    f"Учитывай текст, фото и файлы (кратко: [фото], [файл] и т.д.).\n"
+                    f"{'Можешь материться и быть язвительным.' if self.config['mode'] == 'agro' else 'Без мата.'}"
+                )
             res = await self._ask(prompt, text)
             pages = self._paginate(res)
 
@@ -189,27 +222,22 @@ class HistAI(loader.Module):
     @loader.callback_handler()
     async def _flip_page(self, call):
         if not call.data.startswith(CB_PREFIX):
-            return   # хуй
-
+            return
         try:
             idx = int(call.data[len(CB_PREFIX):])
         except ValueError:
             await call.answer("Неверный индекс")
             return
-
         chat_id = call.message.chat_id
         pages = self._db.get(f"hist:{chat_id}")
-
         if not isinstance(pages, list) or not pages:
             await call.answer("Сводка устарела или пуста.")
             await call.message.delete()
             self._db.pop(f"hist:{chat_id}", None)
             return
-
         if idx < 0 or idx >= len(pages):
             await call.answer("Страница не найдена")
             return
-
         header = call.message.text.split("\n\n<blockquote expandable>")[0]
         await self._send_page(chat_id, pages, idx, header,
                               call.message.reply_to_msg_id or call.message.id)
