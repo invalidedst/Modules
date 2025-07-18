@@ -19,7 +19,7 @@ MAX_PAGE  = 3900
 
 @loader.tds
 class HistAI(loader.Module):
-    """кидает что было пока ты отходил""" #хуй
+    """кидает что было пока ты отходил"""
 
     strings = {
         "name": "HistAI",
@@ -37,12 +37,13 @@ class HistAI(loader.Module):
     def __init__(self):
         self.config = loader.ModuleConfig(
             loader.ConfigValue("gemini_key", "", self.strings["cfg_key"], validator=loader.validators.Hidden()),
-            loader.ConfigValue("history_limit", 250, self.strings["cfg_limit"], validator=loader.validators.Integer()),
+            loader.ConfigValue("history_limit", 250, self.strings["cfg_limit"], validator=loader.validators.Integer(minimum=1, maximum=1000)),
             loader.ConfigValue("mode", "norm", self.strings["cfg_mode"], validator=loader.validators.Choice(["norm", "agro"])),
         )
         self._db = {}
 
     async def client_ready(self, client, db):
+        self.client = client
         if self.config["gemini_key"]:
             genai.configure(api_key=self.config["gemini_key"])
 
@@ -61,26 +62,7 @@ class HistAI(loader.Module):
             if msg.sender and str(getattr(msg.sender, "username", "") or "").endswith("_bot"):
                 continue
             nick = str(getattr(msg.sender, "first_name", "") or str(getattr(msg.sender, "id", "Unknown")))
-
-            if msg.sticker:
-                content = "[стикер]"
-            elif msg.gif:
-                content = "[гиф]"
-            elif msg.photo:
-                content = "[фото]"
-            elif msg.video:
-                content = "[видео]"
-            elif msg.video_note:
-                content = "[видео-кружок]"
-            elif msg.voice:
-                content = "[голосовуха]"
-            elif msg.audio:
-                content = "[аудио]"
-            elif msg.document:
-                content = "[файл]"
-            else:
-                content = (msg.raw_text or "").strip()
-
+            content = self._content_repr(msg)
             lines.append(f"{nick}: {content}")
         return "\n".join(lines)
 
@@ -89,27 +71,19 @@ class HistAI(loader.Module):
         for msg in reversed(msgs):
             if msg.sender_id != user_id:
                 continue
-            content = ""
-            if msg.sticker:
-                content = "[стикер]"
-            elif msg.gif:
-                content = "[гиф]"
-            elif msg.photo:
-                content = "[фото]"
-            elif msg.video:
-                content = "[видео]"
-            elif msg.video_note:
-                content = "[видео-кружок]"
-            elif msg.voice:
-                content = "[голосовуха]"
-            elif msg.audio:
-                content = "[аудио]"
-            elif msg.document:
-                content = "[файл]"
-            else:
-                content = (msg.raw_text or "").strip()
-            lines.append(content)
+            lines.append(self._content_repr(msg))
         return "\n".join(lines)
+
+    def _content_repr(self, msg: Message) -> str:
+        if msg.sticker:      return "[стикер]"
+        if msg.gif:          return "[гиф]"
+        if msg.photo:        return "[фото]"
+        if msg.video:        return "[видео]"
+        if msg.video_note:   return "[видео-кружок]"
+        if msg.voice:        return "[голосовуха]"
+        if msg.audio:        return "[аудио]"
+        if msg.document:     return "[файл]"
+        return (msg.raw_text or "").strip()
 
     def _paginate(self, text: str) -> List[str]:
         pages = []
@@ -142,7 +116,7 @@ class HistAI(loader.Module):
         en_doc="Show what happened while you were away. Use @username or reply to filter.",
     )
     async def ch(self, message: Message):
-        """.ch (@username / reply) — конкретный юзер  
+        """.ch (@username / reply) — конкретный юзер
         .ch — вся история"""
         if not self.config["gemini_key"]:
             await utils.answer(message, self.strings["no_key"])
@@ -192,8 +166,6 @@ class HistAI(loader.Module):
             )
             res = await self._ask(prompt, text)
             pages = self._paginate(res)
-            self._db[f"hist:{chat_id}"] = pages
-            await self._send_page(chat_id, pages, 0, header, message.reply_to_msg_id or message.id)
         else:
             text = self._prep_user(msgs, user_id, user_name)
             header = self.strings["done_user"].format(limit=limit, nick=user_name)
@@ -205,17 +177,30 @@ class HistAI(loader.Module):
             )
             res = await self._ask(prompt, text)
             pages = self._paginate(res)
+
+        # Do NOT store empty lists
+        if pages and pages != [""]:
             self._db[f"hist:{chat_id}"] = pages
-            await self._send_page(chat_id, pages, 0, header, message.reply_to_msg_id or message.id)
+        else:
+            self._db.pop(f"hist:{chat_id}", None)
+
+        await self._send_page(chat_id, pages, 0, header, message.reply_to_msg_id or message.id)
 
     @loader.callback_handler("hist")
     async def _flip_page(self, call):
-        idx = int(call.data.split(":", 1)[1])
+        try:
+            idx = int(call.data.split(":", 1)[1])
+        except ValueError:
+            await call.answer("Неверный индекс")
+            return
+
         chat_id = call.message.chat_id
         pages = self._db.get(f"hist:{chat_id}")
+
         if not pages or idx < 0 or idx >= len(pages):
             await call.answer("Нет страниц")
             return
+
         header = call.message.text.split("\n\n<blockquote expandable>")[0]
         await self._send_page(chat_id, pages, idx, header, call.message.reply_to_msg_id or call.message.id)
         await call.message.delete()
