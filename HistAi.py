@@ -16,6 +16,7 @@ from typing import List, Optional
 
 CHUNK_SEP = "\n"
 MAX_PAGE  = 3900
+CB_PREFIX = "histai_"     
 
 @loader.tds
 class HistAI(loader.Module):
@@ -99,10 +100,10 @@ class HistAI(loader.Module):
         if len(pages) > 1:
             row = []
             if idx > 0:
-                row.append(Button.inline("⬅️", f"hist:{idx-1}"))
+                row.append(Button.inline("⬅️", f"{CB_PREFIX}{idx-1}"))
             row.append(Button.inline(self.strings["page"].format(cur=idx+1, total=len(pages)), "noop"))
             if idx < len(pages) - 1:
-                row.append(Button.inline("➡️", f"hist:{idx+1}"))
+                row.append(Button.inline("➡️", f"{CB_PREFIX}{idx+1}"))
             kb = [row]
         await self.client.send_message(
             entity=chat_id,
@@ -178,7 +179,6 @@ class HistAI(loader.Module):
             res = await self._ask(prompt, text)
             pages = self._paginate(res)
 
-        # Do NOT store empty lists
         if pages and pages != [""]:
             self._db[f"hist:{chat_id}"] = pages
         else:
@@ -186,10 +186,13 @@ class HistAI(loader.Module):
 
         await self._send_page(chat_id, pages, 0, header, message.reply_to_msg_id or message.id)
 
-    @loader.callback_handler("hist")
+    @loader.callback_handler()
     async def _flip_page(self, call):
+        if not call.data.startswith(CB_PREFIX):
+            return   # хуй
+
         try:
-            idx = int(call.data.split(":", 1)[1])
+            idx = int(call.data[len(CB_PREFIX):])
         except ValueError:
             await call.answer("Неверный индекс")
             return
@@ -197,10 +200,17 @@ class HistAI(loader.Module):
         chat_id = call.message.chat_id
         pages = self._db.get(f"hist:{chat_id}")
 
-        if not pages or idx < 0 or idx >= len(pages):
-            await call.answer("Нет страниц")
+        if not isinstance(pages, list) or not pages:
+            await call.answer("Сводка устарела или пуста.")
+            await call.message.delete()
+            self._db.pop(f"hist:{chat_id}", None)
+            return
+
+        if idx < 0 or idx >= len(pages):
+            await call.answer("Страница не найдена")
             return
 
         header = call.message.text.split("\n\n<blockquote expandable>")[0]
-        await self._send_page(chat_id, pages, idx, header, call.message.reply_to_msg_id or call.message.id)
+        await self._send_page(chat_id, pages, idx, header,
+                              call.message.reply_to_msg_id or call.message.id)
         await call.message.delete()
