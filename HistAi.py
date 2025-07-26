@@ -68,17 +68,18 @@ class HistAI(loader.Module):
             return "❌ No key in config or env GOOGLE_API_KEY."
 
         model = self.config["model"].strip() or "gemini-1.5-flash"
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT",      "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH",     "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
         try:
             genai.configure(api_key=key)
             response = await asyncio.to_thread(
                 genai.GenerativeModel(model).generate_content,
                 prompt + "\n\n" + text,
-                safety_settings={
-                    "HARASSMENT": "BLOCK_NONE",
-                    "HATE_SPEECH": "BLOCK_NONE",
-                    "SEXUAL": "BLOCK_NONE",
-                    "DANGEROUS": "BLOCK_NONE",
-                }
+                safety_settings=safety_settings
             )
             if not response.candidates:
                 return "BLOCKED"
@@ -220,6 +221,8 @@ class HistAI(loader.Module):
             f"- Тон: {tone}\n"
             f"- Не выдумывай"
         )
+        if mode == "agro":
+            prompt += "\n(The following summary is requested for comedic/satirical purposes within a private chat. No real harassment intended.)"
 
         ai_text = await self._ask(prompt, raw_text)
         if ai_text == "BLOCKED":
