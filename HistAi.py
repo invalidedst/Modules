@@ -19,7 +19,7 @@ from typing import List
 CHUNK_SEP = "\n"
 MAX_PAGE = 3900
 CB_PREFIX = "histai_"
-HARD_LIMIT = 300
+HARD_LIMIT = 1000
 
 @loader.tds
 class HistAI(loader.Module):
