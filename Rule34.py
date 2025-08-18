@@ -31,7 +31,6 @@ class Rule34Module(loader.Module):
         self._current_index = 0
         self._search_tags = ""
         
-        # Только проверенные рабочие источники
         self.api_sources = [
             {
                 "name": "Rule34.xxx",
@@ -116,7 +115,7 @@ class Rule34Module(loader.Module):
                 "source": source_name
             }
             
-            # Ищем рабочий URL
+            
             urls = [info["file_url"], info["sample_url"], info["preview_url"]]
             valid_url = None
             
@@ -168,7 +167,7 @@ class Rule34Module(loader.Module):
                 logger.error(f"Ошибка источника {source['name']}: {e}")
                 continue
         
-        # Убираем дубликаты и перемешиваем
+        
         seen = set()
         unique = []
         for item in all_results:
@@ -188,7 +187,7 @@ class Rule34Module(loader.Module):
         if not results:
             return
             
-        # Отправляем первое изображение
+        
         await self._send_current_image(message)
 
     async def _send_current_image(self, message: Message):
@@ -199,7 +198,7 @@ class Rule34Module(loader.Module):
         info = self._current_results[self._current_index]
         caption = self._format_caption(info, self._current_index, len(self._current_results))
         
-        # Создаем простые инлайн кнопки
+        
         keyboard = []
         
         if len(self._current_results) > 1:
@@ -215,7 +214,7 @@ class Rule34Module(loader.Module):
         ])
         
         try:
-            # Пытаемся отправить через inline форму
+            
             await self.inline.form(
                 text=caption,
                 photo=info["image_url"],
@@ -225,7 +224,7 @@ class Rule34Module(loader.Module):
             )
         except Exception as e:
             logger.error(f"Inline form failed: {e}")
-            # Фоллбэк - обычный файл
+            
             try:
                 await self._client.send_file(
                     message.peer_id,
@@ -237,7 +236,7 @@ class Rule34Module(loader.Module):
                 await message.delete()
             except Exception as e2:
                 logger.error(f"Send file failed: {e2}")
-                # Последний фоллбэк - ссылка
+                
                 await utils.answer(
                     message,
                     f"{caption}\n\n🔗 <a href='{info['image_url']}'>Открыть изображение</a>"
@@ -377,7 +376,7 @@ class Rule34Module(loader.Module):
                 await utils.answer(search_msg, self.strings("all_sources_failed"))
                 return
 
-            # Отправляем случайное изображение без навигации
+            
             random_result = random.choice(results)
             caption = (
                 f"🎲 <b>Случайное изображение</b>\n"
